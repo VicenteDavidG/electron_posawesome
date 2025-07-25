@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 30px;
+    }
+
+    input {
+      padding: 6px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    button {
+      padding: 8px 20px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+  <meta charset="UTF-8">
+  <title>Configuración de Caja</title>
+</head>
+<body>
+  <h2>Configuración Inicial</h2>
+  <label>Servidor:</label><br/>
+  <input id="url" style="width: 300px" value="http://localhost:8080"/><br/><br/>
+
+  <label>Usuario:</label><br/>
+  <input id="usuario" style="width: 300px"/><br/><br/>
+
+  <label>Clave:</label><br/>
+  <input id="clave" type="password" style="width: 300px"/><br/><br/>
+
+  <button onclick="guardar()">Guardar y continuar</button>
+
+  <script>
+    function guardar() {
+      const config = {
+        url: document.getElementById('url').value,
+        usuario: document.getElementById('usuario').value,
+        clave: document.getElementById('clave').value
+      };
+      window.electronAPI.guardarConfig(config);
+      }
+      window.electronAPI?.onCambiarCantidad(() => {
+        // Aquí va la lógica para simular cambiar cantidad
+        const boton = document.querySelector('button.change-qty-btn');
+        if (boton) {
+          boton.click(); // Ejecuta el botón de cambiar cantidad
+        } else {
+          console.warn('Botón de cambiar cantidad no encontrado');
+        }
+    });
+  </script>
+  <script src="custom-asteroid.js"></script>
+  <script>
+    window.electronAPI?.onInjectScript((event, code) => {
+      const script = document.createElement("script");
+      script.textContent = code;
+      document.body.appendChild(script);
+      console.log("custom-asteroid.js inyectado por main.js");
+    });
+  </script>
+</body>
+</html>
