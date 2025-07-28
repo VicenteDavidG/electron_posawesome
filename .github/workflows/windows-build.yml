@@ -18,7 +18,10 @@ jobs:
       - name: Install electron-builder globally  # 👈 agregado
         run: npm install -g electron-builder     # 👈 agregado
 
-      - run: npm run dist
+      - name: Run npm run dist
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - uses: actions/upload-artifact@v4  # 👈 actualizamos a v4 si no lo hiciste ya
         with:
