@@ -25,5 +25,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4  # 👈 actualizamos a v4 si no lo hiciste ya
         with:
-          name: windows-installer
-          path: build/*.exe
+          name: asteroid-windows
+          path: dist/*.exe
