@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
+  <title>Configuración de Leaf Caja Local</title>
   <style>
     body {
       font-family: sans-serif;
@@ -19,11 +21,10 @@
       cursor: pointer;
     }
   </style>
-  <meta charset="UTF-8">
-  <title>Configuración de Caja</title>
 </head>
 <body>
   <h2>Configuración Inicial</h2>
+
   <label>Servidor:</label><br/>
   <input id="url" style="width: 300px" value="http://localhost:8080"/><br/><br/>
 
@@ -42,21 +43,29 @@
         usuario: document.getElementById('usuario').value,
         clave: document.getElementById('clave').value
       };
-      window.electronAPI.guardarConfig(config);
+
+      if (window.asteroid && typeof window.asteroid.guardarConfig === 'function') {
+        window.asteroid.guardarConfig(config);
+      } else {
+        alert("❌ No se puede guardar la configuración. La API de Electron no está disponible.");
+        console.error("window.asteroid.guardarConfig no está definido");
       }
-      window.electronAPI?.onCambiarCantidad(() => {
-        // Aquí va la lógica para simular cambiar cantidad
-        const boton = document.querySelector('button.change-qty-btn');
-        if (boton) {
-          boton.click(); // Ejecuta el botón de cambiar cantidad
-        } else {
-          console.warn('Botón de cambiar cantidad no encontrado');
-        }
+    }
+
+    window.asteroid?.onCambiarCantidad(() => {
+      const boton = document.querySelector('button.change-qty-btn');
+      if (boton) {
+        boton.click();
+      } else {
+        console.warn('Botón de cambiar cantidad no encontrado');
+      }
     });
   </script>
+
   <script src="custom-asteroid.js"></script>
+
   <script>
-    window.electronAPI?.onInjectScript((event, code) => {
+    window.asteroid?.onInjectScript((event, code) => {
       const script = document.createElement("script");
       script.textContent = code;
       document.body.appendChild(script);
