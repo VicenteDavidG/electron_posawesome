@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld('asteroid', {
     ipcRenderer.on('tecla-manejo-efectivo', () => callback('tecla-manejo-efectivo')); //
     ipcRenderer.on('tecla-validar-factura', () => callback('tecla-validar-factura')); // F8 → Ctrl+X
     ipcRenderer.on('tecla-validar-imprimir', () => callback('tecla-validar-imprimir')); // F9 → Ctrl+A
+  },
+
+  guardarConfig: (config) => {
+    ipcRenderer.send('guardar-config', config);
   }
 });
