@@ -2,13 +2,24 @@ const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-let mainWindow; // ✅ Declaramos mainWindow
-
 const configPath = path.join(app.getPath('userData'), 'config.json');
 console.log("Config path (for debugging):", configPath);
 
+// ✅ Bloquear múltiples instancias
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
     resizable: false,
@@ -18,7 +29,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: false
+      devTools: false  // 🚫 Oculta herramientas de desarrollo (F12 bloqueado también abajo)
     }
   });
 
@@ -26,63 +37,68 @@ function createWindow() {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     console.log("Config cargada:", config);
 
-    // mainWindow.loadURL(`${config.url}`);
+    win.loadURL(`${config.url}`);
 
-    mainWindow.webContents.once('did-finish-load', () => {
+    win.webContents.once('did-finish-load', () => {
       console.log("POS cargado");
       const scriptPath = path.join(__dirname, "custom-asteroid.js");
       const customScript = fs.readFileSync(scriptPath, "utf8");
 
-      mainWindow.webContents.executeJavaScript(customScript)
+      win.webContents.executeJavaScript(customScript)
         .then(() => console.log("✅ Script personalizado inyectado"))
         .catch(err => console.error("❌ Error al inyectar script:", err));
-
-      // ✅ Abre DevTools automáticamente
-      // mainWindow.webContents.openDevTools();
     });
 
   } else {
     console.log("Mostrando setup.html");
-    mainWindow.loadFile('setup.html');
-
-    // ✅ También abre DevTools si aún no hay config
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.openDevTools();
-    });
+    win.loadFile('setup.html');
   }
 
-  // Atajos personalizados
-  globalShortcut.register('F5', () => {
-    mainWindow.webContents.send('tecla-cambiar-cantidad');
+  // ✅ Bloquear acceso a herramientas de desarrollo
+  win.webContents.on('before-input-event', (event, input) => {
+    const key = input.key.toLowerCase();
+    const isDevShortcut = (key === 'i' && input.control && input.shift) || key === 'f12';
+    if (isDevShortcut) {
+      event.preventDefault();
+    }
   });
 
+  // ✅ Deshabilitar menú contextual (clic derecho)
+  win.webContents.on('context-menu', (e) => {
+    e.preventDefault();
+  });
+
+  // ✅ Atajos personalizados ASTEROID POS
   globalShortcut.register('F3', () => {
-    mainWindow.webContents.send('tecla-cancelar-factura');
+    win.webContents.send('tecla-cancelar-factura');
   });
 
   globalShortcut.register('F4', () => {
-    console.log("F4 PRESIONADA");
-    mainWindow.webContents.send('tecla-eliminar-producto');
+    win.webContents.send('tecla-eliminar-producto');
+  });
+
+  globalShortcut.register('F5', () => {
+    win.webContents.send('tecla-cambiar-cantidad');
   });
 
   globalShortcut.register('F10', () => {
-    mainWindow.webContents.send('tecla-totalizar');
+    win.webContents.send('tecla-totalizar');
   });
 
   globalShortcut.register('F9', () => {
-    mainWindow.webContents.send('tecla-aceptar-factura');
+    win.webContents.send('tecla-aceptar-factura');
   });
 
   globalShortcut.register('F8', () => {
-    mainWindow.webContents.send('tecla-aceptar-factura');
+    win.webContents.send('tecla-aceptar-factura');
   });
 
   globalShortcut.register('CommandOrControl+F4', () => {
-    mainWindow.webContents.send('tecla-manejo-efectivo');
+    win.webContents.send('tecla-manejo-efectivo');
   });
 }
 
-// Guardar config
+// ✅ Guardar configuración
 ipcMain.on('guardar-config', (event, config) => {
   console.log("Guardando config en:", configPath);
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -98,6 +114,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
+// ✅ Captura errores inesperados
 process.on('uncaughtException', err => {
   console.error("Error no capturado:", err);
 });
