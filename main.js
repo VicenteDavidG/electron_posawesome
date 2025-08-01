@@ -18,7 +18,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: true
+      devTools: false
     }
   });
 
@@ -26,7 +26,7 @@ function createWindow() {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     console.log("Config cargada:", config);
 
-    mainWindow.loadURL(`${config.url}`);
+    // mainWindow.loadURL(`${config.url}`);
 
     mainWindow.webContents.once('did-finish-load', () => {
       console.log("POS cargado");
@@ -38,7 +38,7 @@ function createWindow() {
         .catch(err => console.error("❌ Error al inyectar script:", err));
 
       // ✅ Abre DevTools automáticamente
-      mainWindow.webContents.openDevTools();
+      // mainWindow.webContents.openDevTools();
     });
 
   } else {
