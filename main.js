@@ -68,7 +68,7 @@ function createWindow() {
     e.preventDefault();
   });
 
-  // ✅ Atajos personalizados ASTEROID POS
+  // ✅ Atajos de teclado personalizados
   globalShortcut.register('F3', () => {
     win.webContents.send('tecla-cancelar-factura');
   });
@@ -81,16 +81,16 @@ function createWindow() {
     win.webContents.send('tecla-cambiar-cantidad');
   });
 
-  globalShortcut.register('F10', () => {
-    win.webContents.send('tecla-totalizar');
+  globalShortcut.register('F8', () => {
+    win.webContents.send('tecla-validar-factura');
   });
 
   globalShortcut.register('F9', () => {
-    win.webContents.send('tecla-aceptar-factura');
+    win.webContents.send('tecla-validar-imprimir');
   });
 
-  globalShortcut.register('F8', () => {
-    win.webContents.send('tecla-aceptar-factura');
+  globalShortcut.register('F10', () => {
+    win.webContents.send('tecla-totalizar');
   });
 
   globalShortcut.register('CommandOrControl+F4', () => {
