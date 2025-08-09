@@ -49,7 +49,7 @@ if (window.asteroid) {
     }
 
     // F9 → Ctrl + A → Validar e Imprimir en pantalla de pagos
-    if (tecla === 'tecla-aceptar-factura') {
+    if (tecla === 'tecla-validar-imprimir') {
       document.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'a', ctrlKey: true })
       );
