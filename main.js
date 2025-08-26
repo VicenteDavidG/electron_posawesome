@@ -5,7 +5,7 @@ const fs = require('fs');
 const configPath = path.join(app.getPath('userData'), 'config.json');
 console.log("Config path (for debugging):", configPath);
 
-// ✅ Bloquear múltiples instancias
+// Bloquear múltiples instancias
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -24,12 +24,12 @@ function createWindow() {
     height: 800,
     resizable: false,
     center: true,
-    title: 'POS Awesome - Caja',
+    title: 'LEAF | PUNTO DE VENTA LOCAL',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: false  // 🚫 Oculta herramientas de desarrollo (F12 bloqueado también abajo)
+      devTools: false  // Oculta herramientas de desarrollo (F12 bloqueado también abajo)
     }
   });
 
@@ -45,8 +45,8 @@ function createWindow() {
       const customScript = fs.readFileSync(scriptPath, "utf8");
 
       win.webContents.executeJavaScript(customScript)
-        .then(() => console.log("✅ Script personalizado inyectado"))
-        .catch(err => console.error("❌ Error al inyectar script:", err));
+        .then(() => console.log("Script personalizado inyectado"))
+        .catch(err => console.error("Error al inyectar script:", err));
     });
 
   } else {
@@ -54,7 +54,7 @@ function createWindow() {
     win.loadFile('setup.html');
   }
 
-  // ✅ Bloquear acceso a herramientas de desarrollo
+  //cBloquear acceso a herramientas de desarrollo
   win.webContents.on('before-input-event', (event, input) => {
     const key = input.key.toLowerCase();
     const isDevShortcut = (key === 'i' && input.control && input.shift) || key === 'f12';
@@ -63,12 +63,12 @@ function createWindow() {
     }
   });
 
-  // ✅ Deshabilitar menú contextual (clic derecho)
+  // Deshabilitar menú contextual (clic derecho)
   win.webContents.on('context-menu', (e) => {
     e.preventDefault();
   });
 
-  // ✅ Atajos de teclado personalizados
+  // Atajos de teclado personalizados
   globalShortcut.register('F3', () => {
     win.webContents.send('tecla-cancelar-factura');
   });
@@ -98,7 +98,7 @@ function createWindow() {
   });
 }
 
-// ✅ Guardar configuración
+// Guardar configuración
 ipcMain.on('guardar-config', (event, config) => {
   console.log("Guardando config en:", configPath);
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -114,7 +114,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-// ✅ Captura errores inesperados
+// Captura errores inesperados
 process.on('uncaughtException', err => {
   console.error("Error no capturado:", err);
 });

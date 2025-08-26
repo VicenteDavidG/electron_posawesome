@@ -47,7 +47,7 @@
       if (window.asteroid && typeof window.asteroid.guardarConfig === 'function') {
         window.asteroid.guardarConfig(config);
       } else {
-        alert("❌ No se puede guardar la configuración. La API de Electron no está disponible.");
+        alert(" No se puede guardar la configuración. La API de Electron no está disponible.");
         console.error("window.asteroid.guardarConfig no está definido");
       }
     }
