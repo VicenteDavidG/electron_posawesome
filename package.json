@@ -1,14 +1,13 @@
 {
   "name": "pos-leaf",
-  "productName": "LEAF POS",
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --x64"
+    "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^26.1.0",
+    "electron": "^24.0.0",
     "electron-builder": "^24.13.3"
   },
   "build": {
@@ -26,15 +25,6 @@
       "target": [
         "nsis"
       ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "LEAF POS"
-    },
-    "artifactName": "LEAF-POS-Setup-${version}.${ext}"
+    }
   }
 }

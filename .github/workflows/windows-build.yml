@@ -1,13 +1,13 @@
-name: Build Windows installer
+name: Build LEAF POS (Windows)
 
 on:
   push:
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -15,6 +15,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -22,8 +23,8 @@ jobs:
       - name: Build installer
         run: npm run dist
 
-      - name: Upload installer artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LEAF-POS-Windows
+          name: leaf-windows-installer
           path: dist/*.exe

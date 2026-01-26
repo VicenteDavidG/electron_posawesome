@@ -25,12 +25,15 @@ function createWindow() {
     resizable: false,
     center: true,
     title: 'LEAF | PUNTO DE VENTA LOCAL',
-    icon: path.join(__dirname, 'leaf.ico'),   
+
+    // ✅ ICONO DE LA VENTANA (Windows/Linux)
+    icon: path.join(__dirname, 'leaf.ico'),
+
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: false  // Oculta herramientas de desarrollo (F12 bloqueado también abajo)
+      devTools: false
     }
   });
 
@@ -55,48 +58,24 @@ function createWindow() {
     win.loadFile('setup.html');
   }
 
-  //cBloquear acceso a herramientas de desarrollo
+  // Bloquear acceso a herramientas de desarrollo
   win.webContents.on('before-input-event', (event, input) => {
     const key = input.key.toLowerCase();
     const isDevShortcut = (key === 'i' && input.control && input.shift) || key === 'f12';
-    if (isDevShortcut) {
-      event.preventDefault();
-    }
+    if (isDevShortcut) event.preventDefault();
   });
 
   // Deshabilitar menú contextual (clic derecho)
-  win.webContents.on('context-menu', (e) => {
-    e.preventDefault();
-  });
+  win.webContents.on('context-menu', (e) => e.preventDefault());
 
   // Atajos de teclado personalizados
-  globalShortcut.register('F3', () => {
-    win.webContents.send('tecla-cancelar-factura');
-  });
-
-  globalShortcut.register('F4', () => {
-    win.webContents.send('tecla-eliminar-producto');
-  });
-
-  globalShortcut.register('F5', () => {
-    win.webContents.send('tecla-cambiar-cantidad');
-  });
-
-  globalShortcut.register('F8', () => {
-    win.webContents.send('tecla-validar-factura');
-  });
-
-  globalShortcut.register('F9', () => {
-    win.webContents.send('tecla-validar-imprimir');
-  });
-
-  globalShortcut.register('F10', () => {
-    win.webContents.send('tecla-totalizar');
-  });
-
-  globalShortcut.register('CommandOrControl+F4', () => {
-    win.webContents.send('tecla-manejo-efectivo');
-  });
+  globalShortcut.register('F3', () => win.webContents.send('tecla-cancelar-factura'));
+  globalShortcut.register('F4', () => win.webContents.send('tecla-eliminar-producto'));
+  globalShortcut.register('F5', () => win.webContents.send('tecla-cambiar-cantidad'));
+  globalShortcut.register('F8', () => win.webContents.send('tecla-validar-factura'));
+  globalShortcut.register('F9', () => win.webContents.send('tecla-validar-imprimir'));
+  globalShortcut.register('F10', () => win.webContents.send('tecla-totalizar'));
+  globalShortcut.register('CommandOrControl+F4', () => win.webContents.send('tecla-manejo-efectivo'));
 }
 
 // Guardar configuración
@@ -115,7 +94,6 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-// Captura errores inesperados
 process.on('uncaughtException', err => {
   console.error("Error no capturado:", err);
 });
