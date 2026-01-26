@@ -25,6 +25,7 @@ function createWindow() {
     resizable: false,
     center: true,
     title: 'LEAF | PUNTO DE VENTA LOCAL',
+    icon: path.join(__dirname, 'leaf.ico'),   
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

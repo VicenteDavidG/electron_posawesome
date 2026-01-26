@@ -1,29 +1,29 @@
 name: Build Windows installer
 
-on: [push, pull_request]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "18"
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Install electron-builder globally  # 👈 agregado
-        run: npm install -g electron-builder     # 👈 agregado
-
-      - name: Run npm run dist
+      - name: Build installer
         run: npm run dist
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - uses: actions/upload-artifact@v4  # 👈 actualizamos a v4 si no lo hiciste ya
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: asteroid-windows
+          name: LEAF-POS-Windows
           path: dist/*.exe

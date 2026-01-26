@@ -1,12 +1,40 @@
 {
-  "name": "posawesome-electron",
+  "name": "pos-leaf",
+  "productName": "LEAF POS",
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder --win --x64"
   },
   "devDependencies": {
-    "electron": "^24.0.0"
+    "electron": "^26.1.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.grintsys.leafpos",
+    "asar": true,
+    "files": [
+      "**/*"
+    ],
+    "directories": {
+      "buildResources": ".",
+      "output": "dist"
+    },
+    "win": {
+      "icon": "leaf.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LEAF POS"
+    },
+    "artifactName": "LEAF-POS-Setup-${version}.${ext}"
   }
 }
