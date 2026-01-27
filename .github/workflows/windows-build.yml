@@ -1,9 +1,6 @@
-name: Build LEAF POS (Windows)
+name: Build Windows installer
 
-on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
+on: [push, pull_request]
 
 jobs:
   build-windows:
@@ -15,16 +12,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
-          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build installer
-        run: npm run dist
+        run: npx electron-builder --win nsis --publish never
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-windows-installer
+          name: leaf-windows
           path: dist/*.exe
