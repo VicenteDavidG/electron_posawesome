@@ -32,4 +32,10 @@ contextBridge.exposeInMainWorld("asteroid", {
 
   // NUEVO: imprimir desde URL (printview) sin diálogo
   printUrl: (payload) => ipcRenderer.invoke("leaf:print-url", payload),
+
+  // NUEVO: Prevenir cierre
+  onCheckCartStatus: (callback) =>
+    ipcRenderer.on("check-cart-status", () => callback()),
+  sendCartStatusResponse: (canClose) =>
+    ipcRenderer.send("cart-status-response", canClose),
 });

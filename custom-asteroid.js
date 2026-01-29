@@ -1,5 +1,5 @@
 // ==============================
-//  LEAF / Super Zito - POS Local
+//  LEAF - POS Local
 //  custom-asteroid.js (compacto)
 // ==============================
 
@@ -12,7 +12,7 @@
       'point-of-sale', 'pos_channel'
     ].forEach(k => localStorage.removeItem(k));
     if (sessionStorage?.clear) sessionStorage.clear();
-  } catch {}
+  } catch { }
 })();
 
 console.log("custom-asteroid.js cargado");
@@ -21,7 +21,7 @@ console.log("custom-asteroid.js cargado");
 window.addEventListener('load', () => {
   const carrito = localStorage.getItem('pos_invoice_items');
   if (carrito && carrito !== '[]') {
-    alert('⚠️ Hay productos pendientes del cierre anterior. Se generará un vale de recuperación.');
+    alert('Hay productos pendientes del cierre anterior. Se generará un vale de recuperación.');
   }
 });
 
@@ -30,13 +30,56 @@ window.addEventListener('load', () => {
 // ====================
 if (window.asteroid) {
   window.asteroid.onKeyEvent((tecla) => {
-    const fire = (k, opts={}) => document.dispatchEvent(new KeyboardEvent('keydown', { key:k, bubbles:true, cancelable:true, ...opts }));
-    if (tecla === 'tecla-cancelar-factura') fire('k', { ctrlKey:true });               // F3 → Ctrl+K
-    if (tecla === 'tecla-eliminar-producto') fire('d', { ctrlKey:true });              // F4 → Ctrl+D
-    if (tecla === 'tecla-cambiar-cantidad')  fire('a', { ctrlKey:true, shiftKey:true });// F5 → Ctrl+Shift+A
-    if (tecla === 'tecla-totalizar')         fire('s', { ctrlKey:true });               // F10 → Ctrl+S
-    if (tecla === 'tecla-validar-factura')   fire('x', { ctrlKey:true });               // F8 (si lo usas)
-    if (tecla === 'tecla-validar-imprimir')  fire('a', { ctrlKey:true });               // F9 → Ctrl+A
+    const fire = (k, opts = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+    if (tecla === 'tecla-cancelar-factura') fire('k', { ctrlKey: true });               // F3 → Ctrl+K
+    if (tecla === 'tecla-eliminar-producto') fire('d', { ctrlKey: true });              // F4 → Ctrl+D
+    if (tecla === 'tecla-cambiar-cantidad') fire('a', { ctrlKey: true, shiftKey: true });// F5 → Ctrl+Shift+A
+    if (tecla === 'tecla-totalizar') fire('s', { ctrlKey: true });               // F10 → Ctrl+S
+    if (tecla === 'tecla-validar-factura') fire('x', { ctrlKey: true });               // F8 (si lo usas)
+
+    // F9: Validar + Imprimir (Solo si está en pantalla de pago)
+    if (tecla === 'tecla-validar-imprimir') {
+      // Intentar detectar si la pantalla de pago está visible
+      // POSAwesome suele usar clases como .payment-container, .screen-payment, etc.
+      // Haremos una comprobación genérica buscando elementos clave de pago
+      const paymentEl = document.querySelector('.payment-container, .payment-section-wrapper, .pos-payment-row, .payment-window');
+      const isVisible = paymentEl && paymentEl.offsetParent !== null;
+
+      if (isVisible) {
+        fire('a', { ctrlKey: true });
+      } else {
+        console.log('F9 ignorado: No se detectó la pantalla de pago activa.');
+      }
+    }
+  });
+
+  // Manejo de intento de cierre (Prevenir si hay items)
+  window.asteroid.onCheckCartStatus(() => {
+    let hasItems = false;
+
+    // 1. Intentar ver objeto global de POS (ERPNext v14)
+    try {
+      if (window.cur_pos && window.cur_pos.cart && window.cur_pos.cart.items && window.cur_pos.cart.items.length > 0) {
+        hasItems = true;
+      }
+    } catch (e) { }
+
+    // 2. Fallback: localStorage
+    if (!hasItems) {
+      const stored = localStorage.getItem('pos_invoice_items');
+      if (stored && stored !== '[]') {
+        hasItems = true;
+      }
+    }
+
+    if (hasItems) {
+      // Bloquear
+      alert('⚠️ NO PUEDES CERRAR: Hay productos en el carrito de venta.\n\nPor favor, completa la venta o elimina los items para salir.');
+      window.asteroid.sendCartStatusResponse(false);
+    } else {
+      // Permitir
+      window.asteroid.sendCartStatusResponse(true);
+    }
   });
 } else {
   console.warn("asteroid API no disponible");
@@ -60,44 +103,48 @@ if (window.asteroid) {
 
     const bar = document.createElement('div');
     bar.id = 'pos-shortcuts-bar';
-    let left='50%', right='auto', tx='translateX(-50%)';
-    if (CFG.align==='left'){ left=CFG.side+'px'; tx='none'; }
-    if (CFG.align==='right'){ left='auto'; right=CFG.side+'px'; tx='none'; }
-    Object.assign(bar.style,{
-      position:'fixed', top:CFG.top+'px', left, right, transform:tx,
-      height:CFG.height+'px', width:CFG.width, display:'flex', alignItems:'center',
-      gap:CFG.gap+'px', padding:`0 ${CFG.padX}px`, fontFamily:CFG.font, fontSize:CFG.fz+'px',
-      background:CFG.barBg, color:CFG.barFg, zIndex:String(CFG.z), boxShadow:CFG.sh, borderRadius:CFG.r+'px'
+    let left = '50%', right = 'auto', tx = 'translateX(-50%)';
+    if (CFG.align === 'left') { left = CFG.side + 'px'; tx = 'none'; }
+    if (CFG.align === 'right') { left = 'auto'; right = CFG.side + 'px'; tx = 'none'; }
+    Object.assign(bar.style, {
+      position: 'fixed', top: CFG.top + 'px', left, right, transform: tx,
+      height: CFG.height + 'px', width: CFG.width, display: 'flex', alignItems: 'center',
+      gap: CFG.gap + 'px', padding: `0 ${CFG.padX}px`, fontFamily: CFG.font, fontSize: CFG.fz + 'px',
+      background: CFG.barBg, color: CFG.barFg, zIndex: String(CFG.z), boxShadow: CFG.sh, borderRadius: CFG.r + 'px'
     });
 
-    const mkBtn=(txt,ttl,fn)=>{ const b=document.createElement('button'); b.textContent=txt; b.title=ttl||txt;
-      Object.assign(b.style,{height:CFG.btnH+'px', lineHeight:CFG.btnH+'px', padding:`0 ${CFG.btnPadX}px`,
-        border:CFG.btnBd, borderRadius:CFG.btnR+'px', background:CFG.btnBg, color:CFG.barFg,
-        cursor:'pointer', userSelect:'none', whiteSpace:'nowrap'}); b.onmouseenter=()=>b.style.background=CFG.btnBgH;
-      b.onmouseleave=()=>b.style.background=CFG.btnBg; b.onclick=fn; return b; };
+    const mkBtn = (txt, ttl, fn) => {
+      const b = document.createElement('button'); b.textContent = txt; b.title = ttl || txt;
+      Object.assign(b.style, {
+        height: CFG.btnH + 'px', lineHeight: CFG.btnH + 'px', padding: `0 ${CFG.btnPadX}px`,
+        border: CFG.btnBd, borderRadius: CFG.btnR + 'px', background: CFG.btnBg, color: CFG.barFg,
+        cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap'
+      }); b.onmouseenter = () => b.style.background = CFG.btnBgH;
+      b.onmouseleave = () => b.style.background = CFG.btnBg; b.onclick = fn; return b;
+    };
 
-    const sendKey = ({ key, ctrl=false, shift=false })=>{
-      const U=(key||'').toUpperCase(); const code=/^[A-Z]$/.test(U)?`Key${U}`:/^[0-9]$/.test(key)?`Digit${key}`:`Key${U}`;
-      const base={key,code,keyCode:U.charCodeAt(0)||0,which:U.charCodeAt(0)||0,ctrlKey:!!ctrl,shiftKey:!!shift,bubbles:true,cancelable:true};
+    const sendKey = ({ key, ctrl = false, shift = false }) => {
+      const U = (key || '').toUpperCase(); const code = /^[A-Z]$/.test(U) ? `Key${U}` : /^[0-9]$/.test(key) ? `Digit${key}` : `Key${U}`;
+      const base = { key, code, keyCode: U.charCodeAt(0) || 0, which: U.charCodeAt(0) || 0, ctrlKey: !!ctrl, shiftKey: !!shift, bubbles: true, cancelable: true };
       window.dispatchEvent(new KeyboardEvent('keydown', base));
       document.dispatchEvent(new KeyboardEvent('keydown', base));
       window.dispatchEvent(new KeyboardEvent('keyup', base));
       document.dispatchEvent(new KeyboardEvent('keyup', base));
     };
 
-    bar.appendChild(mkBtn('F3 | Cancelar','Cancelar (Ctrl+K)',()=>sendKey({key:'k',ctrl:true})));
-    bar.appendChild(mkBtn('F4 | Eliminar ítem','Eliminar ítem (Ctrl+D)',()=>sendKey({key:'d',ctrl:true})));
-    bar.appendChild(mkBtn('F5 | Cantidad','Cambiar cantidad (Ctrl+Shift+A)',()=>sendKey({key:'a',ctrl:true,shift:true})));
-    bar.appendChild(mkBtn('F9 | Validar + Imp','Validar e imprimir (Ctrl+A)',()=>sendKey({key:'a',ctrl:true})));
-    bar.appendChild(mkBtn('F10 | Totalizar','Totalizar (Ctrl+S)',()=>sendKey({key:'s',ctrl:true})));
+    bar.appendChild(mkBtn('F3 | Cancelar', 'Cancelar (Ctrl+K)', () => sendKey({ key: 'k', ctrl: true })));
+    bar.appendChild(mkBtn('F4 | Eliminar ítem', 'Eliminar ítem (Ctrl+D)', () => sendKey({ key: 'd', ctrl: true })));
+    bar.appendChild(mkBtn('F5 | Cantidad', 'Cambiar cantidad (Ctrl+Shift+A)', () => sendKey({ key: 'a', ctrl: true, shift: true })));
+    bar.appendChild(mkBtn('F9 | Validar + Imp', 'Validar e imprimir (Ctrl+A)', () => sendKey({ key: 'a', ctrl: true })));
+    bar.appendChild(mkBtn('F10 | Totalizar', 'Totalizar (Ctrl+S)', () => sendKey({ key: 's', ctrl: true })));
 
-    const toggle = mkBtn('▲','Ocultar/mostrar barra',()=>{
-      const hide=bar.getAttribute('data-collapsed')==='1'; const next=!hide; bar.setAttribute('data-collapsed',next?'1':'0');
-      [...bar.children].forEach(c=>{ if(c!==toggle) c.style.display=next?'none':''; }); toggle.textContent=next?'▼':'▲';
+    const toggle = mkBtn('▲', 'Ocultar/mostrar barra', () => {
+      const hide = bar.getAttribute('data-collapsed') === '1'; const next = !hide; bar.setAttribute('data-collapsed', next ? '1' : '0');
+      [...bar.children].forEach(c => { if (c !== toggle) c.style.display = next ? 'none' : ''; }); toggle.textContent = next ? '▼' : '▲';
     });
-    toggle.style.marginLeft='auto'; toggle.style.minWidth='26px'; bar.appendChild(toggle);
+    toggle.style.marginLeft = 'auto'; toggle.style.minWidth = '26px'; bar.appendChild(toggle);
     document.body.appendChild(bar);
-  } catch(e){ console.error('Error en barra superior:', e); }
+  } catch (e) { console.error('Error en barra superior:', e); }
 })();
 
 // ================================================
@@ -126,22 +173,22 @@ if (window.asteroid) {
   const placePanel = (anchor) => {
     const r = anchor.getBoundingClientRect();
     panel.style.left = r.left + 'px';
-    panel.style.top  = (r.bottom + 6 + window.scrollY) + 'px';
+    panel.style.top = (r.bottom + 6 + window.scrollY) + 'px';
     panel.style.minWidth = Math.max(r.width, 280) + 'px';
   };
   const clearPanel = () => { highlighted = -1; panelList = []; if (panel?.parentNode) panel.parentNode.removeChild(panel); panel = null; };
-  const highlight = (idx) => { highlighted = idx; if (!panel) return; [...panel.children].forEach((row,i)=>row.style.background = i===idx?'rgba(255,255,255,.10)':'transparent'); };
+  const highlight = (idx) => { highlighted = idx; if (!panel) return;[...panel.children].forEach((row, i) => row.style.background = i === idx ? 'rgba(255,255,255,.10)' : 'transparent'); };
   const renderPanel = (anchor, items, onPick) => {
-    panelList = items.slice(0,50);
+    panelList = items.slice(0, 50);
     const p = ensurePanel(anchor); placePanel(anchor); p.innerHTML = '';
-    if (!panelList.length) { const d = document.createElement('div'); d.textContent='Sin resultados por prefijo'; d.style.padding='10px'; d.style.opacity='.8'; p.appendChild(d); return; }
-    panelList.forEach((it,idx) => {
+    if (!panelList.length) { const d = document.createElement('div'); d.textContent = 'Sin resultados por prefijo'; d.style.padding = '10px'; d.style.opacity = '.8'; p.appendChild(d); return; }
+    panelList.forEach((it, idx) => {
       const row = document.createElement('div'); row.dataset.idx = String(idx);
-      Object.assign(row.style,{padding:'10px 12px',cursor:'pointer',display:'grid',gridTemplateColumns:'120px 1fr',gap:'10px'});
+      Object.assign(row.style, { padding: '10px 12px', cursor: 'pointer', display: 'grid', gridTemplateColumns: '120px 1fr', gap: '10px' });
       row.onmouseenter = () => highlight(idx);
       row.onclick = () => onPick(it);
-      const code = document.createElement('div'); code.textContent = it.item_code || it.name || ''; code.style.fontWeight='600';
-      const name = document.createElement('div'); name.textContent = it.item_name || it.description || ''; name.style.opacity='.9';
+      const code = document.createElement('div'); code.textContent = it.item_code || it.name || ''; code.style.fontWeight = '600';
+      const name = document.createElement('div'); name.textContent = it.item_name || it.description || ''; name.style.opacity = '.9';
       row.appendChild(code); row.appendChild(name); p.appendChild(row);
     });
     highlight(-1);
@@ -158,18 +205,18 @@ if (window.asteroid) {
     } catch { return false; }
   };
   const quickLookup = async (term) => {
-    try { const r = await frappe.call({ method:'posawesome.api.search.quick_lookup', args:{ term } }); return r?.message || {}; }
+    try { const r = await frappe.call({ method: 'posawesome.api.search.quick_lookup', args: { term } }); return r?.message || {}; }
     catch { return {}; }
   };
-  const prefixSearch = async (term, limit=30) => {
-    try { const r = await frappe.call({ method:'posawesome.api.search.items_prefix', args:{ term, limit } }); return r?.message || []; }
+  const prefixSearch = async (term, limit = 30) => {
+    try { const r = await frappe.call({ method: 'posawesome.api.search.items_prefix', args: { term, limit } }); return r?.message || []; }
     catch { return []; }
   };
   const addItemToCart = async (item_code) => {
     try {
       if (window.cur_pos && typeof window.cur_pos.add_to_cart === 'function') { window.cur_pos.add_to_cart({ item_code }); return true; }
-      document.dispatchEvent(new KeyboardEvent('keydown',{key:'a',ctrlKey:true,bubbles:true}));
-      document.dispatchEvent(new KeyboardEvent('keyup',{key:'a',ctrlKey:true,bubbles:true}));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', ctrlKey: true, bubbles: true }));
       return true;
     } catch { return false; }
   };
@@ -204,13 +251,13 @@ if (window.asteroid) {
     });
 
     // Bloquear búsqueda “en vivo” cuando strict=ON y no hay %
-    const blockLive = async (e, keyName='input') => {
+    const blockLive = async (e, keyName = 'input') => {
       const term = (searchInput.value || '').trim();
       const hasPercent = term.includes('%');
       const strict = hasPercent ? false : await getStrictFlag();
       if (strict) {
         e.stopImmediatePropagation();
-        searchInput.setAttribute('title','Modo estricto: presiona Enter para buscar por prefijo');
+        searchInput.setAttribute('title', 'Modo estricto: presiona Enter para buscar por prefijo');
         if (!term) clearPanel();
         // Nota: 'input' no es cancelable, pero detener propagación en captura suele bastar.
       } else {
@@ -218,7 +265,7 @@ if (window.asteroid) {
       }
     };
     searchInput.addEventListener('input', blockLive, { capture: true });
-    searchInput.addEventListener('keyup',  async (e)=>{ if (e.key!=='Enter') await blockLive(e,'keyup'); }, { capture: true });
+    searchInput.addEventListener('keyup', async (e) => { if (e.key !== 'Enter') await blockLive(e, 'keyup'); }, { capture: true });
   };
 
   // Observa el DOM por si Vue recrea el input
@@ -226,7 +273,7 @@ if (window.asteroid) {
     const el = findSearchInput();
     if (el) bindToInput(el);
   });
-  mo.observe(document.documentElement, { childList:true, subtree:true });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
 
   // ---------- Captura global de teclado (Enter) ----------
   document.addEventListener('keydown', async (ev) => {
@@ -235,16 +282,16 @@ if (window.asteroid) {
 
     // Navegación del panel
     if (panel) {
-      if (ev.key === 'ArrowDown') { ev.preventDefault(); highlight(Math.min(highlighted+1, panelList.length-1)); return; }
-      if (ev.key === 'ArrowUp')   { ev.preventDefault(); highlight(Math.max(highlighted-1, -1)); return; }
-      if (ev.key === 'Escape')    { ev.preventDefault(); clearPanel(); return; }
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); highlight(Math.min(highlighted + 1, panelList.length - 1)); return; }
+      if (ev.key === 'ArrowUp') { ev.preventDefault(); highlight(Math.max(highlighted - 1, -1)); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); clearPanel(); return; }
       if (ev.key === 'Enter' && highlighted >= 0) {
         ev.preventDefault();
         const pick = panelList[highlighted];
         clearPanel();
         await addItemToCart(pick.item_code || pick.name);
         searchInput.value = '';
-        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         return;
       }
     }
@@ -263,7 +310,7 @@ if (window.asteroid) {
         ev.preventDefault(); ev.stopImmediatePropagation();
         await addItemToCart(exact.item_code);
         searchInput.value = '';
-        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         clearPanel(); handling = false; return;
       }
 
@@ -283,7 +330,7 @@ if (window.asteroid) {
           renderPanel(searchInput, list, async (it) => {
             clearPanel(); await addItemToCart(it.item_code || it.name);
             searchInput.value = '';
-            searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
           });
           handling = false; return;
         }
@@ -291,10 +338,10 @@ if (window.asteroid) {
         ev.preventDefault(); ev.stopImmediatePropagation();
         term = `%${term}%`;
         searchInput.value = term;
-        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         handling = false;
         // Simula Enter para que el POS procese su búsqueda clásica
-        const e = new KeyboardEvent('keydown', { key:'Enter', bubbles:true });
+        const e = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
         searchInput.dispatchEvent(e);
         return;
       }
@@ -310,7 +357,7 @@ if (window.asteroid) {
 
   // Primer bind (por si ya está montado)
   const tryBind = async () => {
-    for (let i=0; i<50 && !searchInput; i++) {
+    for (let i = 0; i < 50 && !searchInput; i++) {
       const el = findSearchInput();
       if (el) { bindToInput(el); break; }
       await SLEEP(200);

@@ -97,6 +97,30 @@ function createWindow() {
   globalShortcut.register("CommandOrControl+F4", () =>
     win.webContents.send("tecla-manejo-efectivo")
   );
+
+  // ---------------------------------------------------------
+  // PREVENIR CIERRE SI HAY ITEMS EN CARRITO
+  // ---------------------------------------------------------
+  let isForceClose = false; // Bandera para cuando ya validamos y permitimos cerrar
+
+  win.on("close", (e) => {
+    if (isForceClose) return; // Si ya validamos, dejar cerrar
+
+    e.preventDefault(); // Cancelar el cierre
+    // Preguntar al renderer si hay items
+    win.webContents.send("check-cart-status");
+  });
+
+  ipcMain.on("cart-status-response", (event, canClose) => {
+    if (canClose) {
+      isForceClose = true;
+      win.close();
+    } else {
+      // Si no se puede cerrar, el renderer ya mostró un alert.
+      // Aquí podríamos mostrar algo extra si quisieramos, pero con el alert basta.
+      console.log("Intento de cierre bloqueado: hay items en el carrito.");
+    }
+  });
 }
 
 // Guardar configuración
@@ -147,7 +171,7 @@ ipcMain.handle("leaf:print-url", async (event, { url, deviceName } = {}) => {
     if (!target) {
       try {
         printWin.close();
-      } catch {}
+      } catch { }
       return { ok: false, error: "No se encontró impresora predeterminada." };
     }
 
@@ -170,13 +194,13 @@ ipcMain.handle("leaf:print-url", async (event, { url, deviceName } = {}) => {
 
     try {
       printWin.close();
-    } catch {}
+    } catch { }
 
     return result;
   } catch (e) {
     try {
       printWin.close();
-    } catch {}
+    } catch { }
     return { ok: false, error: String(e?.message || e) };
   }
 });
