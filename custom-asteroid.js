@@ -39,16 +39,17 @@ if (window.asteroid) {
 
     // F9: Validar + Imprimir (Solo si está en pantalla de pago)
     if (tecla === 'tecla-validar-imprimir') {
-      // Intentar detectar si la pantalla de pago está visible
-      // POSAwesome suele usar clases como .payment-container, .screen-payment, etc.
-      // Haremos una comprobación genérica buscando elementos clave de pago
-      const paymentEl = document.querySelector('.payment-container, .payment-section-wrapper, .pos-payment-row, .payment-window');
+      // En POSAwesome (fork Grintsys):
+      // - Componente Payments.vue usa .selection (v-card)
+      // - Filas de pago con clae "pyments"
+      // Selector robusto:
+      const paymentEl = document.querySelector('.pyments, .v-card.selection .v-btn, .payment-container');
       const isVisible = paymentEl && paymentEl.offsetParent !== null;
 
       if (isVisible) {
         fire('a', { ctrlKey: true });
       } else {
-        console.log('F9 ignorado: No se detectó la pantalla de pago activa.');
+        console.log('F9 ignorado: No se detectó la pantalla de pago activa (selector: .pyments/.selection).');
       }
     }
   });
