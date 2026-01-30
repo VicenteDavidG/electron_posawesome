@@ -37,19 +37,22 @@ if (window.asteroid) {
     if (tecla === 'tecla-totalizar') fire('s', { ctrlKey: true });               // F10 → Ctrl+S
     if (tecla === 'tecla-validar-factura') fire('x', { ctrlKey: true });               // F8 (si lo usas)
 
-    // F9: Validar + Imprimir (Solo si está en pantalla de pago)
-    if (tecla === 'tecla-validar-imprimir') {
+    // Helper para detectar si estamos en la pantalla de pago
+    const isPaymentWindowActive = () => {
       // En POSAwesome (fork Grintsys):
       // - Componente Payments.vue usa .selection (v-card)
-      // - Filas de pago con clae "pyments"
+      // - Filas de pago con clase "payments" (CORREGIDO: era "pyments")
       // Selector robusto:
-      const paymentEl = document.querySelector('.pyments, .v-card.selection .v-btn, .payment-container');
-      const isVisible = paymentEl && paymentEl.offsetParent !== null;
+      const paymentEl = document.querySelector('.payments, .v-card.selection .v-btn, .payment-container');
+      return paymentEl && paymentEl.offsetParent !== null;
+    };
 
-      if (isVisible) {
+    // F9: Validar + Imprimir (Solo si está en pantalla de pago)
+    if (tecla === 'tecla-validar-imprimir') {
+      if (isPaymentWindowActive()) {
         fire('a', { ctrlKey: true });
       } else {
-        console.log('F9 ignorado: No se detectó la pantalla de pago activa (selector: .pyments/.selection).');
+        console.log('F9 ignorado: No se detectó la pantalla de pago activa.');
       }
     }
   });
@@ -133,10 +136,23 @@ if (window.asteroid) {
       document.dispatchEvent(new KeyboardEvent('keyup', base));
     };
 
+    // Reutilizamos la lógica de detección si es posible, o duplicamos la lógica básica
+    const isPaymentActive = () => {
+      const el = document.querySelector('.payments, .v-card.selection .v-btn, .payment-container');
+      return el && el.offsetParent !== null;
+    };
+
     bar.appendChild(mkBtn('F3 | Cancelar', 'Cancelar (Ctrl+K)', () => sendKey({ key: 'k', ctrl: true })));
     bar.appendChild(mkBtn('F4 | Eliminar ítem', 'Eliminar ítem (Ctrl+D)', () => sendKey({ key: 'd', ctrl: true })));
     bar.appendChild(mkBtn('F5 | Cantidad', 'Cambiar cantidad (Ctrl+Shift+A)', () => sendKey({ key: 'a', ctrl: true, shift: true })));
-    bar.appendChild(mkBtn('F9 | Validar + Imp', 'Validar e imprimir (Ctrl+A)', () => sendKey({ key: 'a', ctrl: true })));
+    bar.appendChild(mkBtn('F9 | Validar + Imp', 'Validar e imprimir (Ctrl+A)', () => {
+      // Validar que estemos en pago
+      if (isPaymentActive()) {
+        sendKey({ key: 'a', ctrl: true });
+      } else {
+        console.log('Botón F9 ignorado: No estamos en pago');
+      }
+    }));
     bar.appendChild(mkBtn('F10 | Totalizar', 'Totalizar (Ctrl+S)', () => sendKey({ key: 's', ctrl: true })));
 
     const toggle = mkBtn('▲', 'Ocultar/mostrar barra', () => {
