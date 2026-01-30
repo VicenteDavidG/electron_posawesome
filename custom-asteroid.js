@@ -1,6 +1,6 @@
 // ==============================
 //  LEAF - POS Local
-//  custom-asteroid.js (compacto)
+//  custom-asteroid.js
 // ==============================
 
 // --- Anti-lock: limpia banderas de "otra pestaña activa"
@@ -39,12 +39,26 @@ if (window.asteroid) {
 
     // Helper para detectar si estamos en la pantalla de pago
     const isPaymentWindowActive = () => {
-      // En POSAwesome (fork Grintsys):
-      // - Componente Payments.vue usa .selection (v-card)
-      // - Filas de pago con clase "payments" (CORREGIDO: era "pyments")
-      // Selector robusto:
-      const paymentEl = document.querySelector('.payments, .v-card.selection .v-btn, .payment-container');
-      return paymentEl && paymentEl.offsetParent !== null;
+      // 1. Selectores de clase (existentes + posibles nuevos)
+      const classSelector = '.payments, .v-card.selection .v-btn, .payment-container, .pos-payment-component';
+      const paymentEl = document.querySelector(classSelector);
+      if (paymentEl && paymentEl.offsetParent !== null) return true;
+
+      // 2. Detección por texto en botones (VALIDAR, VALIDAR/IMPRIMIR) - Visible
+      // Busca botones que contengan "VALIDAR" en su texto
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const hasValidarBtn = buttons.some(b => {
+        if (!b.offsetParent) return false; // Debe ser visible
+        const txt = (b.innerText || '').toUpperCase();
+        return txt.includes('VALIDAR') || txt.includes('VALIDATE') || txt.includes('IMPRIMIR') || txt.includes('PRINT');
+      });
+      if (hasValidarBtn) return true;
+
+      // 3. Detección por input característico "Notas adicionales"
+      const noteInput = document.querySelector('input[placeholder*="Notas adicionales"], textarea[placeholder*="Notas adicionales"]');
+      if (noteInput && noteInput.offsetParent !== null) return true;
+
+      return false;
     };
 
     // F9: Validar + Imprimir (Solo si está en pantalla de pago)
@@ -138,8 +152,25 @@ if (window.asteroid) {
 
     // Reutilizamos la lógica de detección si es posible, o duplicamos la lógica básica
     const isPaymentActive = () => {
-      const el = document.querySelector('.payments, .v-card.selection .v-btn, .payment-container');
-      return el && el.offsetParent !== null;
+      // 1. Selectores de clase
+      const classSelector = '.payments, .v-card.selection .v-btn, .payment-container, .pos-payment-component';
+      const paymentEl = document.querySelector(classSelector);
+      if (paymentEl && paymentEl.offsetParent !== null) return true;
+
+      // 2. Botones (VALIDAR / IMPRIMIR)
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const hasValidarBtn = buttons.some(b => {
+        if (!b.offsetParent) return false;
+        const txt = (b.innerText || '').toUpperCase();
+        return txt.includes('VALIDAR') || txt.includes('VALIDATE') || txt.includes('IMPRIMIR') || txt.includes('PRINT');
+      });
+      if (hasValidarBtn) return true;
+
+      // 3. Inputs
+      const noteInput = document.querySelector('input[placeholder*="Notas adicionales"], textarea[placeholder*="Notas adicionales"]');
+      if (noteInput && noteInput.offsetParent !== null) return true;
+
+      return false;
     };
 
     bar.appendChild(mkBtn('F3 | Cancelar', 'Cancelar (Ctrl+K)', () => sendKey({ key: 'k', ctrl: true })));
