@@ -1,4 +1,20 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webFrame } = require("electron");
+
+// Inyectar CSS para asegurar persistencia de la barra
+window.addEventListener("DOMContentLoaded", () => {
+  const style = document.createElement("style");
+  style.innerHTML = `
+    #pos-shortcuts-bar {
+      position: fixed !important;
+      top: 0 !important;
+      z-index: 2147483647 !important; /* Max signed 32-bit integer */
+      display: flex !important;
+      visibility: visible !important;
+      transform: none !important; /* Evitar transformaciones que creen nuevos contextos de apilamiento */
+    }
+  `;
+  document.head.appendChild(style);
+});
 
 contextBridge.exposeInMainWorld("asteroid", {
   onKeyEvent: (callback) => {

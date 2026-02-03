@@ -104,21 +104,26 @@ function createWindow() {
   let isForceClose = false; // Bandera para cuando ya validamos y permitimos cerrar
 
   win.on("close", (e) => {
-    if (isForceClose) return; // Si ya validamos, dejar cerrar
+    if (isForceClose) return; // Si ya validamos y es seguro, dejar cerrar
 
-    e.preventDefault(); // Cancelar el cierre
+    e.preventDefault(); // Cancelar el cierre por defecto
+
     // Preguntar al renderer si hay items
+    // El renderer responderá con 'cart-status-response'
     win.webContents.send("check-cart-status");
   });
 
   ipcMain.on("cart-status-response", (event, canClose) => {
     if (canClose) {
       isForceClose = true;
+      // Importante: usar app.exit() o win.close() dependiendo del flujo deseado. 
+      // Si llamamos win.close(), volverá a disparar el evento 'close', 
+      // pero como isForceClose es true, permitirá el cierre.
       win.close();
     } else {
       // Si no se puede cerrar, el renderer ya mostró un alert.
-      // Aquí podríamos mostrar algo extra si quisieramos, pero con el alert basta.
       console.log("Intento de cierre bloqueado: hay items en el carrito.");
+      // No hacemos nada más, el evento 'close' ya fue prevenido.
     }
   });
 }
