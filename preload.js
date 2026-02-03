@@ -1,19 +1,42 @@
 const { contextBridge, ipcRenderer, webFrame } = require("electron");
 
 // Inyectar CSS para asegurar persistencia de la barra
+// Inyectar CSS y asegurar persistencia de la barra con MutationObserver
 window.addEventListener("DOMContentLoaded", () => {
+  // 1. Estilos base
   const style = document.createElement("style");
   style.innerHTML = `
     #pos-shortcuts-bar {
       position: fixed !important;
       top: 0 !important;
-      z-index: 2147483647 !important; /* Max signed 32-bit integer */
+      z-index: 2147483647 !important;
       display: flex !important;
       visibility: visible !important;
-      transform: none !important; /* Evitar transformaciones que creen nuevos contextos de apilamiento */
+      transform: none !important;
+      opacity: 1 !important;
     }
   `;
   document.head.appendChild(style);
+
+  // 2. Observador para forzar atributos si algo externo intenta ocultarla
+  const observer = new MutationObserver(() => {
+    const bar = document.getElementById("pos-shortcuts-bar");
+    if (bar) {
+      if (bar.style.display === "none") bar.style.display = "flex";
+      if (bar.style.visibility === "hidden") bar.style.visibility = "visible";
+      // Reforzar posición
+      if (bar.style.position !== "fixed") bar.style.setProperty("position", "fixed", "important");
+      if (bar.style.top !== "0px") bar.style.setProperty("top", "0", "important");
+      if (bar.style.zIndex !== "2147483647") bar.style.setProperty("z-index", "2147483647", "important");
+    }
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["style", "class", "hidden"]
+  });
 });
 
 contextBridge.exposeInMainWorld("asteroid", {

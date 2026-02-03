@@ -4,24 +4,72 @@
 // ==============================
 
 // --- Anti-lock: limpia banderas de "otra pestaña activa"
-(() => {
+// Se ejecuta al inicio y periódicamente para asegurar que somos la única pestaña "maestra"
+const clearLock = () => {
   try {
     [
       'pos_tab_id', 'pos_active_tab', 'pos_open_tab',
       'pos_open', 'pos_page_open', 'posawesome_pos_tab',
       'point-of-sale', 'pos_channel'
     ].forEach(k => localStorage.removeItem(k));
-    if (sessionStorage?.clear) sessionStorage.clear();
   } catch { }
-})();
+};
+
+clearLock();
+// Re-check cada 2 segundos por si el framework de Frappe intenta reimponerlo
+setInterval(clearLock, 2000);
 
 console.log("custom-asteroid.js cargado");
 
 // Aviso por carrito pendiente
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   const carrito = localStorage.getItem('pos_invoice_items');
   if (carrito && carrito !== '[]') {
-    alert('Hay productos pendientes del cierre anterior. Se generará un vale de recuperación.');
+    // Solo avisar, no bloquear, ya que el usuario puede querer continuar
+    console.log('Detectado carrito pendiente del cierre anterior.');
+  }
+
+  // --- AUTO LOGIN LOGIC ---
+  if (window.asteroid_config && window.asteroid_config.username) {
+    console.log("LEAF: Intentando auto-login...");
+
+    // Función para esperar elementos
+    const waitForEl = (sel, timeout = 5000) => new Promise(resolve => {
+      if (document.querySelector(sel)) return resolve(document.querySelector(sel));
+      const obs = new MutationObserver(() => {
+        if (document.querySelector(sel)) { resolve(document.querySelector(sel)); obs.disconnect(); }
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => { obs.disconnect(); resolve(null); }, timeout);
+    });
+
+    try {
+      const emailInput = await waitForEl('#login_email');
+      const passInput = await waitForEl('#login_password');
+      const btn = document.querySelector('.btn-login') || document.querySelector('button[type="submit"]');
+
+      if (emailInput && passInput) {
+        // Checar si ya tiene valor (autofill navegador)
+        if (!emailInput.value) {
+          emailInput.value = window.asteroid_config.username;
+          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+          emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        if (!passInput.value && window.asteroid_config.password) {
+          passInput.value = window.asteroid_config.password;
+          passInput.dispatchEvent(new Event('input', { bubbles: true }));
+          passInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        if (btn && window.asteroid_config.password) {
+          // Pequeño delay para asegurar que Vue/React/jQuery detecte los cambios
+          setTimeout(() => btn.click(), 500);
+        }
+      }
+    } catch (e) {
+      console.error("LEAF Auto-login error:", e);
+    }
   }
 });
 
