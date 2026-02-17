@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulacion POS Awesome Logic</title>
+  <style>
+    body { background: #333; color: white; font-family: sans-serif; padding: 20px; }
+    .hidden { display: none !important; }
+    button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
+    .console { background: #111; padding: 10px; border: 1px solid #555; height: 150px; overflow-y: auto; margin-top: 20px; font-family: monospace; }
+  </style>
+</head>
+<body>
+
+  <h1>Prueba de Lógica Ctrl+A / F9</h1>
+  
+  <div style="margin-bottom: 20px; border: 1px solid #666; padding: 10px;">
+    <h3>Controles de la Prueba</h3>
+    <button onclick="togglePaymentScreen()">Alternar Pantalla de Pago</button>
+    <div id="status">Estado: NAVEGACION (Botones ocultos)</div>
+  </div>
+
+  <!-- Simulación de la barra de botones de pago -->
+  <div id="payment-buttons" class="hidden" style="border: 1px dashed lime; padding: 10px;">
+    <h3>Pantalla de Pago</h3>
+    <!-- Los 3 botones requeridos -->
+    <button>VALIDAR</button>
+    <button>VALIDAR/IMPRIMIR</button>
+    <button>CANCELAR</button>
+  </div>
+
+  <div class="console" id="console-log"></div>
+
+  <script>
+    // Mock de visualización
+    function log(msg) {
+      const d = document.createElement('div');
+      d.textContent = `> ${msg}`;
+      document.getElementById('console-log').prepend(d);
+    }
+
+    function togglePaymentScreen() {
+      const el = document.getElementById('payment-buttons');
+      el.classList.toggle('hidden');
+      const isVisible = !el.classList.contains('hidden');
+      document.getElementById('status').textContent = isVisible ? "Estado: PAGO (Botones VISIBLES)" : "Estado: NAVEGACION (Botones OCULTOS)";
+      log(isVisible ? "Pantalla de pago activada" : "Pantalla de pago desactivada");
+    }
+
+    // --- LÓGICA DE VALIDACIÓN (Copiada del fix) ---
+    
+    // Interceptar Ctrl+A físico (teclado)
+    document.addEventListener('keydown', (e) => {
+        // Detectar Ctrl + A
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        
+        // --- INICIO LÓGICA COPIADA ---
+        const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
+        const buttons = Array.from(document.querySelectorAll('button'));
+        
+        const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
+        const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
+        const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
+        const areVisible = hasValidar && hasValidarImprimir && hasCancelar;
+
+        if (!areVisible) {
+            // Bloquear si NO están visibles
+            log('BLOQUEADO: Ctrl+A (No se detectaron los 3 botones)');
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        } else {
+            log('PERMITIDO: Ctrl+A (Los 3 botones son visibles)');
+            // En la app real, aquí no hacemos preventDefault, dejamos que fluya
+            // Pero para el test, prevenimos para que no seleccione todo el texto
+            e.preventDefault(); 
+        }
+        // --- FIN LÓGICA COPIADA ---
+        }
+    }, true);
+    
+    // Simulación de F9 (que viene por IPC en la app real)
+    function simularF9() {
+        // --- INICIO LÓGICA COPIADA (adaptada a función) ---
+        const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
+        const buttons = Array.from(document.querySelectorAll('button'));
+        
+        const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
+        const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
+        const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
+        const areVisible = hasValidar && hasValidarImprimir && hasCancelar;
+        // --- FIN LÓGICA COPIADA ---
+        
+        if (areVisible) {
+            log('PERMITIDO: F9 (Simulado)');
+        } else {
+            log('BLOQUEADO: F9 (Simulado)');
+        }
+    }
+
+    // Bind tecla F9 para probar visualmente
+    document.addEventListener('keydown', e => {
+        if (e.key === 'F9') {
+            e.preventDefault();
+            simularF9();
+        }
+    });
+
+  </script>
+</body>
+</html>

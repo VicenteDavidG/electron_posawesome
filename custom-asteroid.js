@@ -85,39 +85,65 @@ if (window.asteroid) {
     if (tecla === 'tecla-totalizar') fire('s', { ctrlKey: true });               // F10 → Ctrl+S
     if (tecla === 'tecla-validar-factura') fire('x', { ctrlKey: true });               // F8 (si lo usas)
 
-    // Helper para detectar si estamos en la pantalla de pago
-    const isPaymentWindowActive = () => {
-      // 1. Selectores de clase (existentes + posibles nuevos)
-      const classSelector = '.payments, .v-card.selection .v-btn, .payment-container, .pos-payment-component';
-      const paymentEl = document.querySelector(classSelector);
-      if (paymentEl && paymentEl.offsetParent !== null) return true;
+    // Helper para detectar si estamos en la pantalla de pago (ESTRICTO: 3 botones visibles)
+    const arePaymentButtonsVisible = () => {
+      // Helper visibility
+      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
 
-      // 2. Detección por texto en botones (VALIDAR, VALIDAR/IMPRIMIR) - Visible
-      // Busca botones que contengan "VALIDAR" en su texto
       const buttons = Array.from(document.querySelectorAll('button'));
-      const hasValidarBtn = buttons.some(b => {
-        if (!b.offsetParent) return false; // Debe ser visible
-        const txt = (b.innerText || '').toUpperCase();
-        return txt.includes('VALIDAR') || txt.includes('VALIDATE') || txt.includes('IMPRIMIR') || txt.includes('PRINT');
-      });
-      if (hasValidarBtn) return true;
 
-      // 3. Detección por input característico "Notas adicionales"
-      const noteInput = document.querySelector('input[placeholder*="Notas adicionales"], textarea[placeholder*="Notas adicionales"]');
-      if (noteInput && noteInput.offsetParent !== null) return true;
+      // 1. Botón "VALIDAR"
+      const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
 
-      return false;
+      // 2. Botón "VALIDAR/IMPRIMIR" (o similar, flexible por si cambia ligeramente el texto)
+      const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
+
+      // 3. Botón "CANCELAR"
+      const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
+
+      // Deben estar los 3 visibles
+      return hasValidar && hasValidarImprimir && hasCancelar;
     };
 
-    // F9: Validar + Imprimir (Solo si está en pantalla de pago)
+    // F9: Validar + Imprimir (Solo si están los 3 botones)
     if (tecla === 'tecla-validar-imprimir') {
-      if (isPaymentWindowActive()) {
+      if (arePaymentButtonsVisible()) {
         fire('a', { ctrlKey: true });
       } else {
-        console.log('F9 ignorado: No se detectó la pantalla de pago activa.');
+        console.log('F9 ignorado: No se detectaron los 3 botones de pago (VALIDAR, VALIDAR/IMPRIMIR, CANCELAR).');
       }
     }
   });
+
+  // Interceptar Ctrl+A físico (teclado)
+  document.addEventListener('keydown', (e) => {
+    // Detectar Ctrl + A
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      // Checar visibilidad estricta
+      // Definimos la función aquí también o la hacemos global scope arriba? 
+      // Replicamos lógica brevemente para no depender del scope de arriba si no es compartido.
+
+      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
+      const buttons = Array.from(document.querySelectorAll('button'));
+
+      const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
+      const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
+      const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
+      const areVisible = hasValidar && hasValidarImprimir && hasCancelar;
+
+      if (!areVisible) {
+        // Bloquear si NO están visibles
+        console.log('Ctrl+A físico bloqueado: No se detectaron los 3 botones de pago.');
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+      // Si están visibles, dejamos pasar el evento para que el POS lo procese (o nuestro listener de F9 lo dispare)
+    }
+  }, true); // Capture phase para bloquear antes
+
+
 
   // Manejo de intento de cierre (Prevenir si hay items)
   window.asteroid.onCheckCartStatus(() => {
