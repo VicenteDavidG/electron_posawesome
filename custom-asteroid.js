@@ -77,34 +77,142 @@ window.addEventListener('load', async () => {
 // Atajos vía Asteroid
 // ====================
 if (window.asteroid) {
+  // Helper optimizado para detectar si estamos en la pantalla de pago (Totalización)
+  // Busca la presencia simultánea de los 3 botones clave: VALIDAR, VALIDAR/IMPRIMIR, CANCELAR
+  // Se define fuera del callback para no redefinirla en cada evento.
+  const arePaymentButtonsVisible = () => {
+    // getElementsByTagName es "vivo" y más rápido que querySelectorAll
+    const buttons = document.getElementsByTagName('button');
+    let hasValidar = false;
+    let hasValidarImprimir = false;
+    let hasCancelar = false;
+
+    // Recorremos una sola vez
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      // textContent es más ligero que innerText (no provoca reflow si no es necesario)
+      const txt = (btn.textContent || btn.innerText || "").toUpperCase().trim();
+
+      // Chequeo de visibilidad solo si el texto coincide (para evitar reflows innecesarios)
+      // isVisible check: offsetWidth || offsetHeight || getClientRects
+      if (!hasValidar && txt === 'VALIDAR') {
+        if (btn.offsetWidth || btn.offsetHeight || btn.getClientRects().length) hasValidar = true;
+      } else if (!hasValidarImprimir && (txt === 'VALIDAR/IMPRIMIR' || txt.includes('VALIDAR/IMPRIMIR'))) {
+        if (btn.offsetWidth || btn.offsetHeight || btn.getClientRects().length) hasValidarImprimir = true;
+      } else if (!hasCancelar && txt === 'CANCELAR') {
+        if (btn.offsetWidth || btn.offsetHeight || btn.getClientRects().length) hasCancelar = true;
+      }
+
+      // Si ya encontramos los 3, terminamos
+      if (hasValidar && hasValidarImprimir && hasCancelar) return true;
+    }
+    return false;
+    return false;
+  };
+
+  // Helper para manejar el Foco de Cantidad (Anti-Gravity) - EXPORTADO GLOBALMENTE
+  window.handleQuantityFocus = (dispatch = true) => {
+    // 1. Disparar el evento original (Ctrl+Shift+A) con robustez (Keydown y Keyup)
+    // Usamos el mismo patrón que F4: window y document, keydown y keyup.
+    if (dispatch) {
+      const eventOpts = {
+        key: 'A',
+        code: 'KeyA',
+        keyCode: 65,
+        which: 65,
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true
+      };
+
+      // Dispatch robusto para burlar bloqueos y asegurar que Frameworks (Vue/React) lo capten
+      window.dispatchEvent(new KeyboardEvent('keydown', eventOpts));
+      document.dispatchEvent(new KeyboardEvent('keydown', eventOpts));
+      window.dispatchEvent(new KeyboardEvent('keyup', eventOpts));
+      document.dispatchEvent(new KeyboardEvent('keyup', eventOpts));
+    }
+
+    // 2. Buscar y enfocar el input de cantidad tras un breve delay (para que la UI reaccione)
+    // 2. Buscar y enfocar el input de cantidad tras un breve delay (para que la UI reaccione)
+    setTimeout(() => {
+      // Intentar encontrar el input de cantidad
+      const qtySelectors = [
+        '.input-group.qty input',         // POSAwesome común
+        'div[data-fieldname="qty"] input',
+        '.qty-input',
+        'input[aria-label="Quantity"]',
+        'input[type="number"]'            // Fallback genérico si es el único visible o activo
+      ];
+
+      let qtyInput = null;
+
+      // Prioridad: Buscar explícitamente el input de cantidad
+      for (const sel of qtySelectors) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent) { // Visible
+          qtyInput = el;
+          break;
+        }
+      }
+
+      // Fallback: Si no encontramos nada y ya hay un input numérico enfocado, usamos ese.
+      if (!qtyInput && document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.offsetParent) {
+        if (document.activeElement.type === 'number') {
+          qtyInput = document.activeElement;
+        }
+      }
+
+      if (qtyInput) {
+        console.log('LEAF: Input de cantidad detectado, aplicando foco y select.');
+        qtyInput.focus();
+        qtyInput.select();
+
+        // 3. Listener para volver al buscador al dar Enter
+        qtyInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            // Esperar un poco a que el POS procese el cambio de cantidad
+            setTimeout(() => {
+              // Buscar el input de búsqueda (duplicamos lógica de selectores del final del archivo para asegurar éxito)
+              const searchSelectors = [
+                'input[placeholder*="Buscar"]',
+                'input[placeholder*="producto"]',
+                'input[type="search"]',
+                '.v-text-field__slot input',
+                'input.pos-search'
+              ];
+              let searchInput = null;
+              for (const s of searchSelectors) {
+                const el = document.querySelector(s);
+                if (el && el.offsetParent) { searchInput = el; break; }
+              }
+
+              if (searchInput) {
+                console.log('LEAF: Volviendo foco al buscador.');
+                searchInput.focus();
+              }
+            }, 150); // Delay para permitir que el POS guarde la línea
+          }
+        }, { once: true });
+      } else {
+        console.warn('LEAF: No se encontró el input de cantidad para enfocar.');
+      }
+    }, 100); // Delay inicial
+  };
+
   window.asteroid.onKeyEvent((tecla) => {
     const fire = (k, opts = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+
     if (tecla === 'tecla-cancelar-factura') fire('k', { ctrlKey: true });               // F3 → Ctrl+K
     if (tecla === 'tecla-eliminar-producto') fire('d', { ctrlKey: true });              // F4 → Ctrl+D
-    if (tecla === 'tecla-cambiar-cantidad') fire('a', { ctrlKey: true, shiftKey: true });// F5 → Ctrl+Shift+A
+
+    // F5 → Ctrl+Shift+A (Refactorizado: Sin restricciones + manejo de foco)
+    if (tecla === 'tecla-cambiar-cantidad') {
+      if (window.handleQuantityFocus) window.handleQuantityFocus(true); // IPC necesita dispatch
+    }
+
     if (tecla === 'tecla-totalizar') fire('s', { ctrlKey: true });               // F10 → Ctrl+S
     if (tecla === 'tecla-validar-factura') fire('x', { ctrlKey: true });               // F8 (si lo usas)
-
-    // Helper para detectar si estamos en la pantalla de pago (ESTRICTO: 3 botones visibles)
-    const arePaymentButtonsVisible = () => {
-      // Helper visibility
-      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-      const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
-
-      const buttons = Array.from(document.querySelectorAll('button'));
-
-      // 1. Botón "VALIDAR"
-      const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
-
-      // 2. Botón "VALIDAR/IMPRIMIR" (o similar, flexible por si cambia ligeramente el texto)
-      const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
-
-      // 3. Botón "CANCELAR"
-      const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
-
-      // Deben estar los 3 visibles
-      return hasValidar && hasValidarImprimir && hasCancelar;
-    };
 
     // F9: Validar + Imprimir (Solo si están los 3 botones)
     if (tecla === 'tecla-validar-imprimir') {
@@ -118,29 +226,34 @@ if (window.asteroid) {
 
   // Interceptar Ctrl+A físico (teclado)
   document.addEventListener('keydown', (e) => {
-    // Detectar Ctrl + A
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-      // Checar visibilidad estricta
-      // Definimos la función aquí también o la hacemos global scope arriba? 
-      // Replicamos lógica brevemente para no depender del scope de arriba si no es compartido.
+    // Detectar Ctrl + A (SIN SHIFT) -> Validar/Imprimir (F9)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'a') {
 
-      const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-      const getText = (el) => (el.textContent || el.innerText || "").toUpperCase().trim();
-      const buttons = Array.from(document.querySelectorAll('button'));
+      // Si estamos en totalización (arePaymentButtonsVisible es true), dejamos pasar (es F9/ValidarImprimir native flow).
+      // PERO espera, Ctrl+A físico puede ser shortcut del sistema o del POS.
+      // La lógica anterior era: "Si NO están visibles, BLOQUEAR".
+      // O sea, Ctrl+A SOLO se permite en Totalización.
 
-      const hasValidar = buttons.some(b => isVisible(b) && getText(b) === 'VALIDAR');
-      const hasValidarImprimir = buttons.some(b => isVisible(b) && (getText(b) === 'VALIDAR/IMPRIMIR' || getText(b).includes('VALIDAR/IMPRIMIR')));
-      const hasCancelar = buttons.some(b => isVisible(b) && getText(b) === 'CANCELAR');
-      const areVisible = hasValidar && hasValidarImprimir && hasCancelar;
-
-      if (!areVisible) {
+      // Reutilizamos la función optimizada del scope superior
+      if (!arePaymentButtonsVisible()) {
         // Bloquear si NO están visibles
         console.log('Ctrl+A físico bloqueado: No se detectaron los 3 botones de pago.');
         e.preventDefault();
         e.stopImmediatePropagation();
       }
-      // Si están visibles, dejamos pasar el evento para que el POS lo procese (o nuestro listener de F9 lo dispare)
+      // Si están visibles, dejamos pasar el evento
     }
+
+    // NUEVO: F5 físico (Ctrl+Shift+A) -> Usar la misma lógica de foco
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+      // Importante: Solo actuar si el evento es generado por el usuario (físico)
+      if (e.isTrusted) {
+        // NO prevenimos el default. Dejamos que el evento pase al POS.
+        // Simplemente agendamos nuestra lógica de foco para que corra "en paralelo" (después de un microtick)
+        if (window.handleQuantityFocus) window.handleQuantityFocus(false);
+      }
+    }
+
   }, true); // Capture phase para bloquear antes
 
 
@@ -249,7 +362,16 @@ if (window.asteroid) {
 
     bar.appendChild(mkBtn('F3 | Cancelar', 'Cancelar (Ctrl+K)', () => sendKey({ key: 'k', ctrl: true })));
     bar.appendChild(mkBtn('F4 | Eliminar ítem', 'Eliminar ítem (Ctrl+D)', () => sendKey({ key: 'd', ctrl: true })));
-    bar.appendChild(mkBtn('F5 | Cantidad', 'Cambiar cantidad (Ctrl+Shift+A)', () => sendKey({ key: 'a', ctrl: true, shift: true })));
+    bar.appendChild(mkBtn('F5 | Cantidad', 'Cambiar cantidad (Ctrl+Shift+A)', () => {
+      // Usar la lógica global si está disponible, si no, fallback
+      if (typeof window.handleQuantityFocus === 'function') {
+        // Desde botón UI, SI necesitamos disparar el evento
+        window.handleQuantityFocus(true);
+      } else {
+        // Fallback
+        sendKey({ key: 'A', ctrl: true, shift: true });
+      }
+    }));
     bar.appendChild(mkBtn('F9 | Validar + Imp', 'Validar e imprimir (Ctrl+A)', () => {
       // Validar que estemos en pago
       if (isPaymentActive()) {
@@ -482,7 +604,7 @@ if (window.asteroid) {
     for (let i = 0; i < 50 && !searchInput; i++) {
       const el = findSearchInput();
       if (el) { bindToInput(el); break; }
-      await SLEEP(200);
+      await SLEEP(20);
     }
     if (!searchInput) console.warn('LEAF: no pude encontrar el input de búsqueda del POS.');
   };
