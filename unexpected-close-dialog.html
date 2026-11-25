@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cierre inesperado detectado</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #181a20;
+      color: #f3f4f6;
+      line-height: 1.45;
+    }
+    .banner {
+      background: #7f1d1d;
+      border: 1px solid #ef4444;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .banner h2 {
+      margin: 0 0 6px 0;
+      font-size: 17px;
+      color: #fecaca;
+    }
+    .banner p {
+      margin: 0;
+      font-size: 13px;
+      color: #fee2e2;
+    }
+    .card {
+      background: #232732;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 6px 12px;
+      font-size: 13px;
+    }
+    .label {
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .value {
+      color: #f9fafb;
+      word-break: break-word;
+    }
+    .status {
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      background: #1e293b;
+      border: 1px solid #475569;
+    }
+    .status.ok {
+      background: #064e3b;
+      border-color: #10b981;
+      color: #d1fae5;
+    }
+    .status.warn {
+      background: #78350f;
+      border-color: #f59e0b;
+      color: #fef3c7;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    button {
+      padding: 9px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .btn-retry {
+      background: #d97706;
+      color: #ffffff;
+    }
+    .btn-continue {
+      background: #0284c7;
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <h2>Se detectó un cierre inesperado de la sesión anterior</h2>
+    <p id="subtitle">Verificando registro de sesión...</p>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div class="label">Valor pendiente:</div>
+      <div class="value" id="amount">-</div>
+
+      <div class="label">Ítems en carrito:</div>
+      <div class="value" id="items">-</div>
+
+      <div class="label">Último registro:</div>
+      <div class="value" id="last-seen">-</div>
+
+      <div class="label">Fecha de detección:</div>
+      <div class="value" id="detected-at">-</div>
+
+      <div class="label">Motivo:</div>
+      <div class="value" id="reason">-</div>
+
+      <div class="label">Número de vale:</div>
+      <div class="value" id="voucher-number">-</div>
+    </div>
+  </div>
+
+  <div class="status" id="print-status">Procesando...</div>
+
+  <div class="actions">
+    <button type="button" class="btn-retry" id="retry-btn" style="display:none;">Reintentar impresión</button>
+    <button type="button" class="btn-continue" id="continue-btn" disabled>Continuar al POS</button>
+  </div>
+
+  <script>
+    const subtitleEl = document.getElementById("subtitle");
+    const amountEl = document.getElementById("amount");
+    const itemsEl = document.getElementById("items");
+    const lastSeenEl = document.getElementById("last-seen");
+    const detectedAtEl = document.getElementById("detected-at");
+    const reasonEl = document.getElementById("reason");
+    const voucherEl = document.getElementById("voucher-number");
+    const statusEl = document.getElementById("print-status");
+    const retryBtn = document.getElementById("retry-btn");
+    const continueBtn = document.getElementById("continue-btn");
+
+    function renderState(data) {
+      if (!data) return;
+      const currency = data.currency ? data.currency + " " : "";
+      amountEl.textContent = currency + Number(data.pendingTotal || 0).toFixed(2);
+      itemsEl.textContent = String(data.itemsCount ?? 0);
+      lastSeenEl.textContent = data.lastSeenDisplay || "No disponible";
+      detectedAtEl.textContent = data.detectedDisplay || "No disponible";
+      reasonEl.textContent = data.reasonLabel || data.reason || "Desconocido";
+      voucherEl.textContent = data.requiresVoucher
+        ? (data.voucherNumber || "Pendiente")
+        : "No requerido (carrito vacío)";
+
+      if (!data.requiresVoucher) {
+        subtitleEl.textContent = "El incidente fue registrado. No había productos pendientes por facturar.";
+        statusEl.className = "status ok";
+        statusEl.textContent = "Incidente registrado correctamente.";
+        retryBtn.style.display = "none";
+        continueBtn.disabled = false;
+        return;
+      }
+
+      subtitleEl.textContent = "Se generó un vale por los productos pendientes de la sesión interrumpida.";
+
+      if (data.printed) {
+        statusEl.className = "status ok";
+        statusEl.textContent = "Vale impreso correctamente en: " + (data.printer || "Impresora predeterminada");
+        retryBtn.style.display = "none";
+        continueBtn.disabled = false;
+      } else if (data.queued) {
+        statusEl.className = "status warn";
+        statusEl.textContent =
+          "No se pudo imprimir el vale (" +
+          (data.printError || "Error de impresión") +
+          "). El vale quedó guardado en la cola de reintento.";
+        retryBtn.style.display = "inline-block";
+        continueBtn.disabled = false;
+      } else {
+        statusEl.className = "status";
+        statusEl.textContent = "Intentando imprimir el vale...";
+        retryBtn.style.display = "none";
+        continueBtn.disabled = true;
+      }
+    }
+
+    async function init() {
+      const data = await window.leafUnexpectedClose.getData();
+      renderState(data);
+    }
+
+    retryBtn.addEventListener("click", async () => {
+      retryBtn.disabled = true;
+      statusEl.className = "status";
+      statusEl.textContent = "Reintentando impresión...";
+      try {
+        const updated = await window.leafUnexpectedClose.retryPrint();
+        renderState(updated);
+      } finally {
+        retryBtn.disabled = false;
+      }
+    });
+
+    continueBtn.addEventListener("click", async () => {
+      await window.leafUnexpectedClose.acknowledge();
+    });
+
+    init();
+  </script>
+</body>
+</html>

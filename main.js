@@ -6,6 +6,7 @@ const {
   dialog,
   powerMonitor,
 } = require("electron");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { createLogger } = require("./src/logger");
@@ -19,6 +20,16 @@ const {
   applyClosePolicy,
   evaluateClosePermission,
 } = require("./src/close-guard");
+const { createSessionJournal } = require("./src/journal");
+const { createOutbox } = require("./src/outbox");
+const {
+  formatLocalVoucherNumber,
+  formatDisplayDateTime,
+  translateReason,
+  buildVoucherHtml,
+  printHtml,
+  createVoucherQueue,
+} = require("./src/voucher");
 
 // Support isolated userData directory for automated testing
 if (process.env.LEAF_USER_DATA_DIR) {
@@ -41,6 +52,9 @@ if (!gotInstanceLock) {
 
 const userDataDir = app.getPath("userData");
 const logger = createLogger(userDataDir);
+const journal = createSessionJournal(userDataDir, logger);
+const outbox = createOutbox(userDataDir, logger);
+const voucherQueue = createVoucherQueue(userDataDir, logger);
 
 let mainWindow = null;
 let currentConfig = null;
@@ -49,8 +63,9 @@ let isForceClose = false;
 let isSystemShutdown = false;
 let closeCheckInProgress = false;
 
-// Active modal PIN prompt state (used for Supervisor Emergency Exit & Hard Reset)
+// Active modal states
 let activePinDialog = null;
+let activeUnexpectedCloseModal = null;
 
 app.on("second-instance", () => {
   const win = mainWindow || BrowserWindow.getAllWindows()[0];
@@ -62,7 +77,6 @@ app.on("second-instance", () => {
 
 /**
  * Open a secure modal PIN dialog (contextIsolation: true, sandbox: true).
- * Resolves to { confirmed: true } when validator returns { ok: true }, or { confirmed: false }.
  */
 function openPinDialog({ parentWin, title, message, confirmLabel, onValidate }) {
   return new Promise((resolve) => {
@@ -150,6 +164,284 @@ ipcMain.on("leaf:pin-dialog-cancel", (event) => {
 });
 
 /**
+ * Build server outbox payload from a previous session record.
+ */
+function buildUnexpectedClosePayload({ record, reason, detectedAt }) {
+  const snap = record?.lastSnapshot || {};
+  return {
+    client_session_id: record?.sessionId,
+    pos_profile: snap.posProfile || null,
+    pos_opening_shift: snap.shiftName || null,
+    invoice_name: snap.invoiceName || null,
+    pending_total: Number(snap.pendingTotal || 0),
+    currency: snap.currency || "",
+    items_count: Number(snap.itemsCount || 0),
+    last_seen_at: record?.lastSeenAt || record?.startedAt || detectedAt,
+    detected_at: detectedAt,
+    reason,
+    machine_name: record?.machineName || os.hostname(),
+    app_version: record?.appVersion || app.getVersion(),
+  };
+}
+
+/**
+ * Build voucher object from an unexpected close incident.
+ */
+function buildVoucherData({ record, reason, detectedAt, serverVoucherNumber, serverTime }) {
+  const snap = record?.lastSnapshot || {};
+  const voucherNumber = serverVoucherNumber || formatLocalVoucherNumber(new Date(detectedAt));
+  return {
+    sessionId: record?.sessionId,
+    voucherNumber,
+    pendingTotal: Number(snap.pendingTotal || 0),
+    currency: snap.currency || "",
+    itemsCount: Number(snap.itemsCount || 0),
+    lastSeenAt: record?.lastSeenAt || record?.startedAt || detectedAt,
+    detectedAt,
+    serverTime: serverTime || null,
+    lastSeenDisplay: formatDisplayDateTime(record?.lastSeenAt || record?.startedAt || detectedAt),
+    detectedDisplay: serverTime
+      ? `${formatDisplayDateTime(serverTime)} (Servidor)`
+      : `${formatDisplayDateTime(detectedAt)} (Local)`,
+    user: snap.user || currentConfig?.username || null,
+    posProfile: snap.posProfile || null,
+    shiftName: snap.shiftName || null,
+    machineName: record?.machineName || os.hostname(),
+    reason,
+    reasonLabel: translateReason(reason),
+    requiresVoucher: Number(snap.pendingTotal || 0) > 0,
+    printed: false,
+    queued: false,
+    printer: null,
+    printError: null,
+  };
+}
+
+/**
+ * Attempt to print a voucher and update queue state accordingly.
+ */
+async function attemptVoucherPrint(voucherData, parentWin) {
+  const html = buildVoucherHtml(voucherData);
+  const printResult = await printHtml({
+    html,
+    parentWin,
+    userDataDir,
+    logger,
+  });
+
+  if (printResult.ok) {
+    voucherData.printed = true;
+    voucherData.queued = false;
+    voucherData.printer = printResult.printer || "Impresora predeterminada";
+    voucherData.printError = null;
+    voucherQueue.remove(voucherData.sessionId);
+    logger.info("Unexpected-close voucher printed.", {
+      sessionId: voucherData.sessionId,
+      voucherNumber: voucherData.voucherNumber,
+      printer: voucherData.printer,
+    });
+  } else {
+    voucherData.printed = false;
+    voucherData.queued = true;
+    voucherData.printError = printResult.error || "Error al imprimir";
+    voucherQueue.enqueue(voucherData);
+    logger.warn("Voucher printing failed; queued for retry.", {
+      sessionId: voucherData.sessionId,
+      voucherNumber: voucherData.voucherNumber,
+      error: voucherData.printError,
+    });
+  }
+  return voucherData;
+}
+
+/**
+ * Show blocking Spanish unexpected-close modal before continuing to POS.
+ */
+function showUnexpectedCloseDialog({ parentWin, voucherData }) {
+  return new Promise((resolve) => {
+    const dialogWin = new BrowserWindow({
+      parent: parentWin && !parentWin.isDestroyed() ? parentWin : undefined,
+      modal: Boolean(parentWin && !parentWin.isDestroyed()),
+      width: 560,
+      height: 520,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      title: "Cierre inesperado detectado",
+      webPreferences: {
+        preload: path.join(__dirname, "preload-dialog.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        devTools: false,
+      },
+    });
+
+    dialogWin.setMenuBarVisibility(false);
+
+    let canDismiss = !voucherData.requiresVoucher;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      activeUnexpectedCloseModal = null;
+      resolve();
+    };
+
+    activeUnexpectedCloseModal = {
+      win: dialogWin,
+      parentWin,
+      voucherData,
+      setCanDismiss: (val) => {
+        canDismiss = Boolean(val);
+      },
+      finish,
+    };
+
+    // Prevent closing before voucher is printed or queued
+    dialogWin.on("close", (e) => {
+      if (!canDismiss && !isSystemShutdown) {
+        e.preventDefault();
+      }
+    });
+
+    dialogWin.on("closed", () => finish());
+    dialogWin.loadFile(path.join(__dirname, "unexpected-close-dialog.html"));
+
+    // Immediately attempt silent print if voucher is required
+    if (voucherData.requiresVoucher) {
+      dialogWin.webContents.once("did-finish-load", async () => {
+        await attemptVoucherPrint(voucherData, parentWin);
+        canDismiss = Boolean(voucherData.printed || voucherData.queued);
+        if (!dialogWin.isDestroyed()) {
+          // Refresh UI by notifying via reload or letting renderer poll/re-fetch;
+          // wait: re-sending isn't needed if getData waits or we push—let's resolve getData AFTER print attempt or re-render!
+        }
+      });
+    }
+  });
+}
+
+ipcMain.handle("leaf:unexpected-close-data", async (event) => {
+  if (
+    !activeUnexpectedCloseModal ||
+    activeUnexpectedCloseModal.win.webContents.id !== event.sender.id
+  ) {
+    return null;
+  }
+  const { voucherData, parentWin, setCanDismiss } = activeUnexpectedCloseModal;
+  if (voucherData.requiresVoucher && !voucherData.printed && !voucherData.queued) {
+    await attemptVoucherPrint(voucherData, parentWin);
+    setCanDismiss(Boolean(voucherData.printed || voucherData.queued));
+  }
+  return voucherData;
+});
+
+ipcMain.handle("leaf:unexpected-close-retry-print", async (event) => {
+  if (
+    !activeUnexpectedCloseModal ||
+    activeUnexpectedCloseModal.win.webContents.id !== event.sender.id
+  ) {
+    return null;
+  }
+  const { voucherData, parentWin, setCanDismiss } = activeUnexpectedCloseModal;
+  await attemptVoucherPrint(voucherData, parentWin);
+  setCanDismiss(Boolean(voucherData.printed || voucherData.queued));
+  return voucherData;
+});
+
+ipcMain.handle("leaf:unexpected-close-ack", (event) => {
+  if (
+    !activeUnexpectedCloseModal ||
+    activeUnexpectedCloseModal.win.webContents.id !== event.sender.id
+  ) {
+    return { ok: false };
+  }
+  const { voucherData, win, setCanDismiss, finish } = activeUnexpectedCloseModal;
+  if (voucherData.requiresVoucher && !voucherData.printed && !voucherData.queued) {
+    return { ok: false };
+  }
+  setCanDismiss(true);
+  finish();
+  if (!win.isDestroyed()) {
+    win.close();
+  }
+  return { ok: true };
+});
+
+/**
+ * Process an unexpected close incident: enqueue in outbox, flush if online, and notify cashier.
+ */
+async function handleUnexpectedCloseDetection({ inspection, parentWin }) {
+  const detectedAt = new Date().toISOString();
+  const payload = buildUnexpectedClosePayload({
+    record: inspection.record,
+    reason: inspection.reason,
+    detectedAt,
+  });
+
+  outbox.enqueue(payload);
+
+  let serverVoucherNumber = null;
+  let serverTime = null;
+  try {
+    const flushRes = await outbox.flush({
+      serverUrl: currentConfig?.url,
+      targetSession: parentWin.webContents.session,
+      timeoutMs: 3500,
+    });
+    const matched = flushRes.results?.find(
+      (r) => r.client_session_id === payload.client_session_id
+    );
+    if (matched) {
+      serverVoucherNumber = matched.voucherNumber || null;
+      serverTime = matched.serverTime || null;
+    }
+  } catch (err) {
+    logger.warn("Immediate outbox flush on startup failed; kept in outbox.", { error: err });
+  }
+
+  const voucherData = buildVoucherData({
+    record: inspection.record,
+    reason: inspection.reason,
+    detectedAt,
+    serverVoucherNumber,
+    serverTime,
+  });
+
+  await showUnexpectedCloseDialog({ parentWin, voucherData });
+}
+
+/**
+ * Retry printing any queued vouchers from menu.
+ */
+async function retryQueuedVouchers(win) {
+  const queued = voucherQueue.getAll();
+  if (queued.length === 0) {
+    await dialog.showMessageBox(win, {
+      type: "info",
+      title: "Vales pendientes",
+      message: "No hay vales pendientes por imprimir.",
+      buttons: ["Aceptar"],
+    });
+    return;
+  }
+
+  let printedCount = 0;
+  for (const voucher of queued) {
+    const updated = await attemptVoucherPrint({ ...voucher }, win);
+    if (updated.printed) printedCount++;
+  }
+
+  await dialog.showMessageBox(win, {
+    type: printedCount === queued.length ? "info" : "warning",
+    title: "Reintento de vales",
+    message: `Se imprimieron ${printedCount} de ${queued.length} vale(s) pendiente(s).`,
+    buttons: ["Aceptar"],
+  });
+}
+
+/**
  * Show a Spanish blocked-action alert when reload or navigation is prevented.
  */
 async function showBlockedNavigationDialog(win, evaluation) {
@@ -197,6 +489,9 @@ async function handleHardResetMenu(win) {
   if (!confirmed) return;
 
   logger.warn("Hard Reset authorized and executed.");
+  journal.markCleanClose();
+  outbox.stopRetryLoop();
+
   const cfgPath = getConfigPath(userDataDir);
   if (fs.existsSync(cfgPath)) {
     try {
@@ -224,6 +519,10 @@ function buildAppMenu(win) {
     {
       label: "Archivo",
       submenu: [
+        {
+          label: "Reintentar vales pendientes",
+          click: () => retryQueuedVouchers(win),
+        },
         {
           label: "Hard Reset",
           click: () => handleHardResetMenu(win),
@@ -284,9 +583,12 @@ async function handleCloseAttempt(win) {
 
     if (evaluation.snapshot) {
       lastSnapshot = evaluation.snapshot;
+      journal.updateSnapshot(lastSnapshot);
     }
 
     if (evaluation.allowed) {
+      journal.markCleanClose();
+      outbox.stopRetryLoop();
       isForceClose = true;
       win.close();
       return;
@@ -333,6 +635,8 @@ async function handleCloseAttempt(win) {
 
     if (confirmed) {
       logger.warn("Supervisor authorized emergency exit.", { reason: evaluation.reason });
+      journal.markCleanClose();
+      outbox.stopRetryLoop();
       isForceClose = true;
       if (!win.isDestroyed()) {
         win.close();
@@ -343,7 +647,7 @@ async function handleCloseAttempt(win) {
   }
 }
 
-function createWindow() {
+async function createWindow() {
   const configExists = fs.existsSync(getConfigPath(userDataDir));
   currentConfig = configExists ? loadConfig(userDataDir, logger) : null;
 
@@ -368,16 +672,49 @@ function createWindow() {
   buildAppMenu(win);
 
   if (currentConfig && currentConfig.url) {
-    win.loadURL(currentConfig.url);
+    // Inspect previous session journal BEFORE starting new session
+    const prevInspection = journal.inspectPreviousSession();
 
-    win.webContents.on("did-finish-load", () => {
-      const scriptPath = path.join(__dirname, "custom-asteroid.js");
-      const customScript = fs.readFileSync(scriptPath, "utf8");
-      win.webContents
-        .executeJavaScript(customScript)
-        .then(() => logger.info("Page helper script injected."))
-        .catch((err) => logger.error("Failed to inject helper script.", { error: err }));
+    journal.startSession({
+      appVersion: app.getVersion(),
+      machineName: os.hostname(),
     });
+
+    // Start 60-second outbox retry loop
+    outbox.startRetryLoop(() => ({
+      serverUrl: currentConfig?.url,
+      targetSession: win && !win.isDestroyed() ? win.webContents.session : null,
+      timeoutMs: 5000,
+    }));
+
+    if (prevInspection.detected) {
+      await handleUnexpectedCloseDetection({
+        inspection: prevInspection,
+        parentWin: win,
+      });
+    } else {
+      // Flush any leftover events in outbox from earlier offline detections
+      outbox
+        .flush({
+          serverUrl: currentConfig.url,
+          targetSession: win.webContents.session,
+          timeoutMs: 4000,
+        })
+        .catch(() => {});
+    }
+
+    if (!win.isDestroyed()) {
+      win.loadURL(currentConfig.url);
+
+      win.webContents.on("did-finish-load", () => {
+        const scriptPath = path.join(__dirname, "custom-asteroid.js");
+        const customScript = fs.readFileSync(scriptPath, "utf8");
+        win.webContents
+          .executeJavaScript(customScript)
+          .then(() => logger.info("Page helper script injected."))
+          .catch((err) => logger.error("Failed to inject helper script.", { error: err }));
+      });
+    }
   } else {
     logger.info("No config.json found; loading setup.html.");
     win.loadFile(path.join(__dirname, "setup.html"));
@@ -389,13 +726,11 @@ function createWindow() {
     const key = (input.key || "").toLowerCase();
     const hasModifier = Boolean(input.control || input.meta);
 
-    // Block DevTools shortcuts
     if ((key === "i" && hasModifier && input.shift) || key === "f12") {
       event.preventDefault();
       return;
     }
 
-    // Block manual reload (Ctrl+R / Cmd+R / Ctrl+Shift+R)
     if (key === "r" && hasModifier) {
       event.preventDefault();
       const policyCheck = applyClosePolicy({
@@ -407,14 +742,12 @@ function createWindow() {
       return;
     }
 
-    // Route Ctrl+W / Cmd+W and Alt+F4 through the guarded close flow
     if ((key === "w" && hasModifier) || (key === "f4" && input.alt)) {
       event.preventDefault();
       win.close();
       return;
     }
 
-    // Focused POS function keys
     const shortcutMap = {
       f3: "tecla-cancelar-factura",
       f4: "tecla-eliminar-producto",
@@ -430,10 +763,8 @@ function createWindow() {
     }
   });
 
-  // Disable context menu
   win.webContents.on("context-menu", (e) => e.preventDefault());
 
-  // Handle page-initiated unload (beforeunload) with close policy
   win.webContents.on("will-prevent-unload", (event) => {
     if (isSystemShutdown || isForceClose) {
       event.preventDefault();
@@ -454,24 +785,8 @@ function createWindow() {
     }
   });
 
-  // Handle page-initiated navigations / reloads when blocked by POS policy
   win.webContents.on("will-navigate", (event, targetUrl) => {
     if (isSystemShutdown || isForceClose) return;
-    const currentUrl = win.webContents.getURL();
-    if (!currentUrl || targetUrl === currentUrl) {
-      // Same-URL reload attempt
-      const evaluation = applyClosePolicy({
-        canCloseResult: null,
-        snapshot: lastSnapshot,
-        config: currentConfig,
-      });
-      if (!evaluation.allowed) {
-        event.preventDefault();
-        showBlockedNavigationDialog(win, evaluation);
-      }
-      return;
-    }
-
     const evaluation = applyClosePolicy({
       canCloseResult: null,
       snapshot: lastSnapshot,
@@ -487,17 +802,76 @@ function createWindow() {
     }
   });
 
-  // Guard window close (Alt+F4, X button, Archivo -> Salir, Ctrl+W)
+  // Render process crash recovery (Phase B4)
+  win.webContents.on("render-process-gone", async (_event, details) => {
+    logger.error("Renderer process gone.", { details });
+    journal.recordEvent("render-process-gone");
+
+    const record = journal.getCurrentRecord();
+    const snap = record?.lastSnapshot || lastSnapshot;
+    const pendingTotal = Number(snap?.pendingTotal || 0);
+
+    await dialog.showMessageBox(win, {
+      type: "error",
+      title: "Error en la pantalla del punto de venta",
+      message: "La pantalla del punto de venta se detuvo inesperadamente.",
+      detail:
+        pendingTotal > 0
+          ? "Se registró el incidente y se generará el vale por los productos pendientes antes de recargar."
+          : "Se registró el incidente en el diario local. La aplicación se recargará ahora.",
+      buttons: ["Recargar punto de venta"],
+    });
+
+    if (pendingTotal > 0 && currentConfig?.url && !win.isDestroyed()) {
+      const detectedAt = new Date().toISOString();
+      const payload = buildUnexpectedClosePayload({
+        record: { ...record, lastSnapshot: snap },
+        reason: "render-process-gone",
+        detectedAt,
+      });
+      outbox.enqueue(payload);
+      const voucherData = buildVoucherData({
+        record: { ...record, lastSnapshot: snap },
+        reason: "render-process-gone",
+        detectedAt,
+      });
+      await attemptVoucherPrint(voucherData, win);
+    }
+
+    if (currentConfig?.url && !win.isDestroyed()) {
+      win.loadURL(currentConfig.url);
+    }
+  });
+
+  // Unresponsive renderer recovery (Phase B4)
+  win.on("unresponsive", async () => {
+    logger.warn("Main window became unresponsive.");
+    journal.recordEvent("unresponsive");
+
+    const { response } = await dialog.showMessageBox(win, {
+      type: "warning",
+      title: "Ventana sin respuesta",
+      message: "El punto de venta dejó de responder.",
+      detail: "Puede esperar unos segundos o recargar la pantalla de forma segura (el estado quedó guardado en el diario).",
+      buttons: ["Esperar", "Recargar punto de venta"],
+      defaultId: 0,
+    });
+
+    if (response === 1 && currentConfig?.url && !win.isDestroyed()) {
+      win.loadURL(currentConfig.url);
+    }
+  });
+
   win.on("close", (e) => {
     if (isForceClose || isSystemShutdown) return;
-    if (!currentConfig) return; // Allow closing setup screen freely
+    if (!currentConfig) return;
     e.preventDefault();
     handleCloseAttempt(win);
   });
 
-  // Windows OS shutdown / logoff event on the BrowserWindow
   win.on("session-end", () => {
-    logger.warn("OS session-end received; allowing exit without veto.");
+    logger.warn("OS session-end received; recording in journal and allowing exit.");
+    journal.recordEvent("session-end");
     isSystemShutdown = true;
     isForceClose = true;
   });
@@ -510,6 +884,7 @@ ipcMain.on("leaf:report-snapshot", (_event, snapshot) => {
     ...snapshot,
     receivedAt: new Date().toISOString(),
   };
+  journal.updateSnapshot(lastSnapshot);
 });
 
 // Temporary setup handler until Phase C enhances setup.html
@@ -517,6 +892,7 @@ ipcMain.on("guardar-config", (_event, config) => {
   const cfgPath = getConfigPath(userDataDir);
   fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
   fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf8");
+  journal.markCleanClose();
   isForceClose = true;
   app.relaunch();
   app.exit(0);
@@ -585,19 +961,26 @@ ipcMain.handle("leaf:print-url", async (event, { url, deviceName } = {}) => {
   }
 });
 
-// macOS/Linux OS shutdown event
 powerMonitor.on("shutdown", () => {
-  logger.warn("OS powerMonitor shutdown received; allowing exit without veto.");
+  logger.warn("OS powerMonitor shutdown received; recording in journal and allowing exit.");
+  journal.recordEvent("shutdown");
   isSystemShutdown = true;
   isForceClose = true;
+});
+
+app.on("child-process-gone", (_event, details) => {
+  logger.error("Child process gone.", { details });
+  journal.recordEvent("child-process-gone");
 });
 
 app.whenReady().then(createWindow);
 
 process.on("uncaughtException", (err) => {
+  journal.recordEvent("uncaughtException");
   logger.error("Uncaught exception in main process.", { error: err });
 });
 
 process.on("unhandledRejection", (reason) => {
+  journal.recordEvent("unhandledRejection");
   logger.error("Unhandled rejection in main process.", { error: reason });
 });
