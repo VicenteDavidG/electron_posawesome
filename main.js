@@ -10,11 +10,18 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { createLogger } = require("./src/logger");
-const { verifyPin, verifySupervisor } = require("./src/security");
+const {
+  encryptSecret,
+  decryptSecret,
+  hashPin,
+  verifyPin,
+  verifySupervisor,
+} = require("./src/security");
 const {
   getConfigPath,
   isAllowedPrintUrl,
   loadConfig,
+  saveConfig,
 } = require("./src/config");
 const {
   applyClosePolicy,
@@ -30,6 +37,7 @@ const {
   printHtml,
   createVoucherQueue,
 } = require("./src/voucher");
+const { testServerUrl, loginToServer } = require("./src/auth");
 
 // Support isolated userData directory for automated testing
 if (process.env.LEAF_USER_DATA_DIR) {
@@ -298,7 +306,6 @@ function showUnexpectedCloseDialog({ parentWin, voucherData }) {
       finish,
     };
 
-    // Prevent closing before voucher is printed or queued
     dialogWin.on("close", (e) => {
       if (!canDismiss && !isSystemShutdown) {
         e.preventDefault();
@@ -307,18 +314,6 @@ function showUnexpectedCloseDialog({ parentWin, voucherData }) {
 
     dialogWin.on("closed", () => finish());
     dialogWin.loadFile(path.join(__dirname, "unexpected-close-dialog.html"));
-
-    // Immediately attempt silent print if voucher is required
-    if (voucherData.requiresVoucher) {
-      dialogWin.webContents.once("did-finish-load", async () => {
-        await attemptVoucherPrint(voucherData, parentWin);
-        canDismiss = Boolean(voucherData.printed || voucherData.queued);
-        if (!dialogWin.isDestroyed()) {
-          // Refresh UI by notifying via reload or letting renderer poll/re-fetch;
-          // wait: re-sending isn't needed if getData waits or we push—let's resolve getData AFTER print attempt or re-render!
-        }
-      });
-    }
   });
 }
 
@@ -647,9 +642,81 @@ async function handleCloseAttempt(win) {
   }
 }
 
+/**
+ * Load configured POS URL, perform main-process login if configured, and attach window guards.
+ */
+async function startPosInWindow(win, config) {
+  currentConfig = config;
+  const prevInspection = journal.inspectPreviousSession();
+
+  journal.startSession({
+    appVersion: app.getVersion(),
+    machineName: os.hostname(),
+  });
+
+  outbox.startRetryLoop(() => ({
+    serverUrl: currentConfig?.url,
+    targetSession: win && !win.isDestroyed() ? win.webContents.session : null,
+    timeoutMs: 5000,
+  }));
+
+  if (currentConfig.username && currentConfig.passwordEncrypted) {
+    try {
+      const password = decryptSecret(currentConfig.passwordEncrypted);
+      await loginToServer({
+        serverUrl: currentConfig.url,
+        username: currentConfig.username,
+        password,
+        targetSession: win.webContents.session,
+        logger,
+      });
+    } catch (err) {
+      logger.warn("Could not decrypt or execute main-process login.", { error: err });
+    }
+  }
+
+  if (prevInspection.detected) {
+    await handleUnexpectedCloseDetection({
+      inspection: prevInspection,
+      parentWin: win,
+    });
+  } else {
+    outbox
+      .flush({
+        serverUrl: currentConfig.url,
+        targetSession: win.webContents.session,
+        timeoutMs: 4000,
+      })
+      .catch(() => {});
+  }
+
+  if (win.isDestroyed()) return;
+
+  const configuredOrigin = new URL(currentConfig.url).origin;
+  win.webContents.on("did-finish-load", () => {
+    try {
+      const loadedUrl = win.webContents.getURL();
+      if (!loadedUrl || new URL(loadedUrl).origin !== configuredOrigin) {
+        return;
+      }
+      const scriptPath = path.join(__dirname, "custom-asteroid.js");
+      const customScript = fs.readFileSync(scriptPath, "utf8");
+      win.webContents
+        .executeJavaScript(customScript)
+        .then(() => logger.info("Page helper script injected."))
+        .catch((err) => logger.error("Failed to inject helper script.", { error: err }));
+    } catch (err) {
+      logger.error("Error checking loaded origin before script injection.", { error: err });
+    }
+  });
+
+  win.loadURL(currentConfig.url);
+}
+
 async function createWindow() {
   const configExists = fs.existsSync(getConfigPath(userDataDir));
   currentConfig = configExists ? loadConfig(userDataDir, logger) : null;
+  const isConfigured = Boolean(currentConfig && currentConfig.url);
 
   const win = new BrowserWindow({
     width: 1200,
@@ -659,7 +726,7 @@ async function createWindow() {
     title: "LEAF | PUNTO DE VENTA LOCAL",
     icon: path.join(__dirname, "leaf.ico"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, isConfigured ? "preload.js" : "preload-setup.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -671,58 +738,18 @@ async function createWindow() {
   mainWindow = win;
   buildAppMenu(win);
 
-  if (currentConfig && currentConfig.url) {
-    // Inspect previous session journal BEFORE starting new session
-    const prevInspection = journal.inspectPreviousSession();
-
-    journal.startSession({
-      appVersion: app.getVersion(),
-      machineName: os.hostname(),
-    });
-
-    // Start 60-second outbox retry loop
-    outbox.startRetryLoop(() => ({
-      serverUrl: currentConfig?.url,
-      targetSession: win && !win.isDestroyed() ? win.webContents.session : null,
-      timeoutMs: 5000,
-    }));
-
-    if (prevInspection.detected) {
-      await handleUnexpectedCloseDetection({
-        inspection: prevInspection,
-        parentWin: win,
-      });
-    } else {
-      // Flush any leftover events in outbox from earlier offline detections
-      outbox
-        .flush({
-          serverUrl: currentConfig.url,
-          targetSession: win.webContents.session,
-          timeoutMs: 4000,
-        })
-        .catch(() => {});
-    }
-
-    if (!win.isDestroyed()) {
-      win.loadURL(currentConfig.url);
-
-      win.webContents.on("did-finish-load", () => {
-        const scriptPath = path.join(__dirname, "custom-asteroid.js");
-        const customScript = fs.readFileSync(scriptPath, "utf8");
-        win.webContents
-          .executeJavaScript(customScript)
-          .then(() => logger.info("Page helper script injected."))
-          .catch((err) => logger.error("Failed to inject helper script.", { error: err }));
-      });
-    }
+  if (isConfigured) {
+    await startPosInWindow(win, currentConfig);
   } else {
     logger.info("No config.json found; loading setup.html.");
     win.loadFile(path.join(__dirname, "setup.html"));
   }
 
-  // Focused-window keyboard guards and POS shortcuts (replaces globalShortcut)
+  // Focused-window keyboard guards and POS shortcuts (window-scoped)
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
+    if (!currentConfig?.url) return;
+
     const key = (input.key || "").toLowerCase();
     const hasModifier = Boolean(input.control || input.meta);
 
@@ -766,7 +793,7 @@ async function createWindow() {
   win.webContents.on("context-menu", (e) => e.preventDefault());
 
   win.webContents.on("will-prevent-unload", (event) => {
-    if (isSystemShutdown || isForceClose) {
+    if (isSystemShutdown || isForceClose || !currentConfig?.url) {
       event.preventDefault();
       return;
     }
@@ -786,7 +813,7 @@ async function createWindow() {
   });
 
   win.webContents.on("will-navigate", (event, targetUrl) => {
-    if (isSystemShutdown || isForceClose) return;
+    if (isSystemShutdown || isForceClose || !currentConfig?.url) return;
     const evaluation = applyClosePolicy({
       canCloseResult: null,
       snapshot: lastSnapshot,
@@ -802,7 +829,6 @@ async function createWindow() {
     }
   });
 
-  // Render process crash recovery (Phase B4)
   win.webContents.on("render-process-gone", async (_event, details) => {
     logger.error("Renderer process gone.", { details });
     journal.recordEvent("render-process-gone");
@@ -843,7 +869,6 @@ async function createWindow() {
     }
   });
 
-  // Unresponsive renderer recovery (Phase B4)
   win.on("unresponsive", async () => {
     logger.warn("Main window became unresponsive.");
     journal.recordEvent("unresponsive");
@@ -852,7 +877,8 @@ async function createWindow() {
       type: "warning",
       title: "Ventana sin respuesta",
       message: "El punto de venta dejó de responder.",
-      detail: "Puede esperar unos segundos o recargar la pantalla de forma segura (el estado quedó guardado en el diario).",
+      detail:
+        "Puede esperar unos segundos o recargar la pantalla de forma segura (el estado quedó guardado en el diario).",
       buttons: ["Esperar", "Recargar punto de venta"],
       defaultId: 0,
     });
@@ -887,15 +913,63 @@ ipcMain.on("leaf:report-snapshot", (_event, snapshot) => {
   journal.updateSnapshot(lastSnapshot);
 });
 
-// Temporary setup handler until Phase C enhances setup.html
-ipcMain.on("guardar-config", (_event, config) => {
-  const cfgPath = getConfigPath(userDataDir);
-  fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
-  fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf8");
-  journal.markCleanClose();
-  isForceClose = true;
-  app.relaunch();
-  app.exit(0);
+// Setup: test server URL connectivity
+ipcMain.handle("leaf:test-url", async (event, url) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const targetSession = senderWin?.webContents?.session;
+  return testServerUrl({ url, targetSession });
+});
+
+// Setup: validate, test URL, encrypt password, hash both PINs, and persist config
+ipcMain.handle("leaf:save-config", async (event, input) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const targetSession = senderWin?.webContents?.session;
+
+  const urlCheck = await testServerUrl({
+    url: input?.url,
+    targetSession,
+  });
+  if (!urlCheck.ok) {
+    return { ok: false, error: urlCheck.error };
+  }
+
+  const supPin = String(input?.supervisorPin || "");
+  const hrPin = String(input?.hardResetPin || "");
+  if (supPin.length < 4 || hrPin.length < 4) {
+    return {
+      ok: false,
+      error: "Los códigos PIN deben tener al menos 4 caracteres.",
+    };
+  }
+
+  try {
+    const passwordPlain = String(input?.password || "");
+    const passwordEncrypted = passwordPlain ? encryptSecret(passwordPlain) : "";
+    const supervisorPinHash = hashPin(supPin);
+    const hardResetPinHash = hashPin(hrPin);
+
+    saveConfig(userDataDir, {
+      url: urlCheck.url,
+      username: String(input?.username || "").trim(),
+      passwordEncrypted,
+      supervisorPinHash,
+      hardResetPinHash,
+      blockOnPendingItems: input?.blockOnPendingItems !== false,
+      blockOnOpenShift: input?.blockOnOpenShift !== false,
+    });
+
+    logger.info("Initial setup configuration saved securely.");
+    isForceClose = true;
+    app.relaunch();
+    app.exit(0);
+    return { ok: true };
+  } catch (err) {
+    logger.error("Failed to save configuration.", { error: err });
+    return {
+      ok: false,
+      error: `No se pudo guardar la configuración de forma segura: ${err?.message || err}`,
+    };
+  }
 });
 
 // Silent URL print handler with origin validation

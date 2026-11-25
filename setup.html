@@ -1,75 +1,253 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Configuración Leaf, Punto de Venta Local</title>
+  <title>Configuración | LEAF Punto de Venta Local</title>
   <style>
+    * { box-sizing: border-box; }
     body {
-      font-family: sans-serif;
-      padding: 30px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #141821;
+      color: #f3f4f6;
+      margin: 0;
+      padding: 28px;
+      display: flex;
+      justify-content: center;
     }
-
-    input {
-      padding: 6px;
-      margin-bottom: 10px;
+    .panel {
+      width: 100%;
+      max-width: 540px;
+      background: #1e2430;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 24px;
+    }
+    h2 {
+      margin: 0 0 6px 0;
+      font-size: 20px;
+    }
+    .subtitle {
+      margin: 0 0 18px 0;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .field {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      color: #e2e8f0;
+    }
+    input[type="text"],
+    input[type="url"],
+    input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #ffffff;
       font-size: 14px;
     }
-
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .url-row {
+      display: flex;
+      gap: 8px;
+    }
+    .url-row input { flex: 1; }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .status {
+      min-height: 20px;
+      font-size: 13px;
+      margin: 10px 0 14px 0;
+      color: #cbd5e1;
+    }
+    .status.ok { color: #6ee7b7; }
+    .status.error { color: #fca5a5; }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 12px;
+    }
     button {
-      padding: 8px 20px;
-      font-size: 14px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: none;
       cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #334155;
+      color: #f8fafc;
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #ffffff;
     }
   </style>
 </head>
 <body>
-  <h2>Configuración Inicial</h2>
+  <form class="panel" id="setup-form">
+    <h2>Configuración inicial</h2>
+    <p class="subtitle">Configure el servidor POS Awesome, credenciales y códigos PIN de seguridad de esta caja.</p>
 
-  <label>Servidor:</label><br/>
-  <input id="url" style="width: 300px" value="http://localhost:8080"/><br/><br/>
+    <div class="field">
+      <label for="url">Servidor POS Awesome (URL):</label>
+      <div class="url-row">
+        <input id="url" type="url" value="http://localhost:8080" required />
+        <button type="button" class="btn-secondary" id="test-btn">Probar conexión</button>
+      </div>
+    </div>
 
-  <label>Usuario:</label><br/>
-  <input id="usuario" style="width: 300px"/><br/><br/>
+    <div class="row-2">
+      <div class="field">
+        <label for="username">Usuario:</label>
+        <input id="username" type="text" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="password">Clave:</label>
+        <input id="password" type="password" autocomplete="off" />
+      </div>
+    </div>
 
-  <label>Clave:</label><br/>
-  <input id="clave" type="password" style="width: 300px"/><br/><br/>
+    <div class="row-2">
+      <div class="field">
+        <label for="supervisor-pin">PIN de supervisor (mín. 4 dígitos):</label>
+        <input id="supervisor-pin" type="password" autocomplete="off" required />
+      </div>
+      <div class="field">
+        <label for="supervisor-pin-confirm">Confirmar PIN de supervisor:</label>
+        <input id="supervisor-pin-confirm" type="password" autocomplete="off" required />
+      </div>
+    </div>
 
-  <button onclick="guardar()">Guardar y continuar</button>
+    <div class="row-2">
+      <div class="field">
+        <label for="hard-reset-pin">PIN de Hard Reset (mín. 4 dígitos):</label>
+        <input id="hard-reset-pin" type="password" autocomplete="off" required />
+      </div>
+      <div class="field">
+        <label for="hard-reset-pin-confirm">Confirmar PIN de Hard Reset:</label>
+        <input id="hard-reset-pin-confirm" type="password" autocomplete="off" required />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="checkbox-row">
+        <input type="checkbox" id="block-pending" checked />
+        Bloquear cierre o recarga si hay productos sin facturar
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="block-shift" checked />
+        Bloquear cierre o recarga si el turno de caja está abierto
+      </label>
+    </div>
+
+    <div class="status" id="status-msg"></div>
+
+    <div class="actions">
+      <button type="submit" class="btn-primary" id="save-btn">Guardar y continuar</button>
+    </div>
+  </form>
 
   <script>
-    function guardar() {
-      const config = {
-        url: document.getElementById('url').value,
-        usuario: document.getElementById('usuario').value,
-        clave: document.getElementById('clave').value
-      };
+    const form = document.getElementById("setup-form");
+    const urlInput = document.getElementById("url");
+    const usernameInput = document.getElementById("username");
+    const passwordInput = document.getElementById("password");
+    const supPinInput = document.getElementById("supervisor-pin");
+    const supPinConfirmInput = document.getElementById("supervisor-pin-confirm");
+    const hrPinInput = document.getElementById("hard-reset-pin");
+    const hrPinConfirmInput = document.getElementById("hard-reset-pin-confirm");
+    const blockPendingInput = document.getElementById("block-pending");
+    const blockShiftInput = document.getElementById("block-shift");
+    const testBtn = document.getElementById("test-btn");
+    const saveBtn = document.getElementById("save-btn");
+    const statusEl = document.getElementById("status-msg");
 
-      if (window.asteroid && typeof window.asteroid.guardarConfig === 'function') {
-        window.asteroid.guardarConfig(config);
-      } else {
-        alert(" No se puede guardar la configuración. La API de Electron no está disponible.");
-        console.error("window.asteroid.guardarConfig no está definido");
-      }
+    function setStatus(text, kind = "") {
+      statusEl.textContent = text;
+      statusEl.className = "status" + (kind ? " " + kind : "");
     }
 
-    window.asteroid?.onCambiarCantidad(() => {
-      const boton = document.querySelector('button.change-qty-btn');
-      if (boton) {
-        boton.click();
-      } else {
-        console.warn('Botón de cambiar cantidad no encontrado');
+    testBtn.addEventListener("click", async () => {
+      testBtn.disabled = true;
+      setStatus("Probando conexión con el servidor...");
+      try {
+        const res = await window.leafSetup.testUrl(urlInput.value);
+        if (res?.ok) {
+          setStatus("Conexión exitosa (HTTP " + res.status + ").", "ok");
+        } else {
+          setStatus(res?.error || "No se pudo conectar con el servidor.", "error");
+        }
+      } catch {
+        setStatus("Error al probar la conexión.", "error");
+      } finally {
+        testBtn.disabled = false;
       }
     });
-  </script>
 
-  <script src="custom-asteroid.js"></script>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const supPin = supPinInput.value;
+      const hrPin = hrPinInput.value;
 
-  <script>
-    window.asteroid?.onInjectScript((event, code) => {
-      const script = document.createElement("script");
-      script.textContent = code;
-      document.body.appendChild(script);
-      console.log("custom-asteroid.js inyectado por main.js");
+      if (supPin.length < 4) {
+        setStatus("El PIN de supervisor debe tener al menos 4 caracteres.", "error");
+        return;
+      }
+      if (supPin !== supPinConfirmInput.value) {
+        setStatus("Los PIN de supervisor no coinciden.", "error");
+        return;
+      }
+      if (hrPin.length < 4) {
+        setStatus("El PIN de Hard Reset debe tener al menos 4 caracteres.", "error");
+        return;
+      }
+      if (hrPin !== hrPinConfirmInput.value) {
+        setStatus("Los PIN de Hard Reset no coinciden.", "error");
+        return;
+      }
+
+      saveBtn.disabled = true;
+      setStatus("Verificando servidor y guardando configuración...");
+      try {
+        const res = await window.leafSetup.saveConfig({
+          url: urlInput.value,
+          username: usernameInput.value,
+          password: passwordInput.value,
+          supervisorPin: supPin,
+          hardResetPin: hrPin,
+          blockOnPendingItems: blockPendingInput.checked,
+          blockOnOpenShift: blockShiftInput.checked,
+        });
+        if (!res?.ok) {
+          setStatus(res?.error || "No se pudo guardar la configuración.", "error");
+          saveBtn.disabled = false;
+        }
+      } catch {
+        setStatus("Error inesperado al guardar la configuración.", "error");
+        saveBtn.disabled = false;
+      }
     });
   </script>
 </body>
