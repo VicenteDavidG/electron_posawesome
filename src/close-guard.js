@@ -92,14 +92,14 @@ function applyClosePolicy({ canCloseResult, snapshot, config, timedOut = false, 
     };
   }
 
-  // If renderer timed out and we have no snapshot at all, require supervisor override
-  if (timedOut && !snapshot) {
+  // If renderer timed out, live state cannot be confirmed; require supervisor override
+  if (timedOut) {
     return {
       allowed: false,
       reason: "unresponsive",
       title: "La página no responde",
       detail: "El punto de venta no respondió a tiempo para verificar si hay productos sin facturar o turno abierto.",
-      snapshot: null,
+      snapshot: snapshot || null,
       timedOut: true,
       fallbackUsed: false,
     };

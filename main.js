@@ -38,6 +38,7 @@ const {
   createVoucherQueue,
 } = require("./src/voucher");
 const { testServerUrl, loginToServer } = require("./src/auth");
+const { setupAutoUpdater } = require("./src/updater");
 
 // Support isolated userData directory for automated testing
 if (process.env.LEAF_USER_DATA_DIR) {
@@ -738,27 +739,25 @@ async function createWindow() {
   mainWindow = win;
   buildAppMenu(win);
 
-  if (isConfigured) {
-    await startPosInWindow(win, currentConfig);
-  } else {
-    logger.info("No config.json found; loading setup.html.");
-    win.loadFile(path.join(__dirname, "setup.html"));
-  }
-
-  // Focused-window keyboard guards and POS shortcuts (window-scoped)
+  // Window-scoped keyboard guards and POS shortcuts (attached before loading URL)
   win.webContents.on("before-input-event", (event, input) => {
-    if (input.type !== "keyDown") return;
+    if (input.type !== "keyDown" && input.type !== "rawKeyDown") return;
     if (!currentConfig?.url) return;
 
     const key = (input.key || "").toLowerCase();
+    const code = (input.code || "").toLowerCase();
     const hasModifier = Boolean(input.control || input.meta);
 
-    if ((key === "i" && hasModifier && input.shift) || key === "f12") {
+    if (
+      ((key === "i" || code === "keyi") && hasModifier && input.shift) ||
+      key === "f12" ||
+      code === "f12"
+    ) {
       event.preventDefault();
       return;
     }
 
-    if (key === "r" && hasModifier) {
+    if ((key === "r" || code === "keyr") && hasModifier) {
       event.preventDefault();
       const policyCheck = applyClosePolicy({
         canCloseResult: null,
@@ -769,7 +768,10 @@ async function createWindow() {
       return;
     }
 
-    if ((key === "w" && hasModifier) || (key === "f4" && input.alt)) {
+    if (
+      ((key === "w" || code === "keyw") && hasModifier) ||
+      ((key === "f4" || code === "f4") && input.alt)
+    ) {
       event.preventDefault();
       win.close();
       return;
@@ -784,9 +786,10 @@ async function createWindow() {
       f10: "tecla-totalizar",
     };
 
-    if (!input.alt && !input.control && !input.meta && shortcutMap[key]) {
+    const shortcutChannel = shortcutMap[key] || shortcutMap[code];
+    if (!input.alt && !input.control && !input.meta && shortcutChannel) {
       event.preventDefault();
-      win.webContents.send(shortcutMap[key]);
+      win.webContents.send(shortcutChannel);
     }
   });
 
@@ -901,6 +904,13 @@ async function createWindow() {
     isSystemShutdown = true;
     isForceClose = true;
   });
+
+  if (isConfigured) {
+    await startPosInWindow(win, currentConfig);
+  } else {
+    logger.info("No config.json found; loading setup.html.");
+    win.loadFile(path.join(__dirname, "setup.html"));
+  }
 }
 
 // Receive snapshot updates from POS Awesome / fallback monitor
@@ -1047,7 +1057,10 @@ app.on("child-process-gone", (_event, details) => {
   journal.recordEvent("child-process-gone");
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await createWindow();
+  setupAutoUpdater(logger);
+});
 
 process.on("uncaughtException", (err) => {
   journal.recordEvent("uncaughtException");

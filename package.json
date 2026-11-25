@@ -1,20 +1,50 @@
 {
   "name": "pos-leaf",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "LEAF | Punto de Venta Local para POS Awesome (ERPNext v14)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "test": "playwright test",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
-    "electron": "^24.0.0",
-    "electron-builder": "^24.13.3"
+    "@playwright/test": "^1.65.1",
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "com.grintsys.leafpos",
+    "productName": "LEAF POS Local",
     "asar": true,
     "files": [
-      "**/*"
+      "main.js",
+      "preload.js",
+      "preload-pin.js",
+      "preload-dialog.js",
+      "preload-setup.js",
+      "custom-asteroid.js",
+      "setup.html",
+      "pin-dialog.html",
+      "unexpected-close-dialog.html",
+      "leaf.ico",
+      "src/**/*",
+      "package.json",
+      "!tests/**",
+      "!test_logic.html",
+      "!.vscode/**",
+      "!playwright.config.js",
+      "!*.md"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "VicenteDavidG",
+        "repo": "electron_posawesome"
+      }
     ],
     "directories": {
       "buildResources": ".",
